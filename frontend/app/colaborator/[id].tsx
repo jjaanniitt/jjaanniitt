@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { X, FilePdf, CaretRight, UserPlus, PencilSimple, MagnifyingGlass, Warning, Plus } from "phosphor-react-native";
+import { X, FilePdf, CaretRight, UserPlus, PencilSimple, MagnifyingGlass, Warning, Plus, Trash } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Field, StatusBadge } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
@@ -23,6 +23,7 @@ export default function ColaboratorSheet() {
   const [tab, setTab] = useState<"Stoc" | "Intrari" | "Clienti">("Stoc");
 
   const [stockModal, setStockModal] = useState<{ pid: string; label: string; qty: string } | null>(null);
+  const [delProduct, setDelProduct] = useState<{ id: string; label: string } | null>(null);
   const [clientModal, setClientModal] = useState(false);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
@@ -58,6 +59,18 @@ export default function ColaboratorSheet() {
       qc.invalidateQueries({ queryKey: ["collaborator", id] });
       setClientModal(false); setClientName(""); setClientPhone("");
       toast("Client adaugat", "success");
+    },
+    onError: (e: any) => toast(e.message || "Eroare", "error"),
+  });
+
+  const removeProduct = useMutation({
+    mutationFn: () => api(`/products/${delProduct!.id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["collaborator", id] });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      setDelProduct(null);
+      toast("Produs sters din catalog", "success");
     },
     onError: (e: any) => toast(e.message || "Eroare", "error"),
   });
@@ -119,6 +132,9 @@ export default function ColaboratorSheet() {
               <Text style={[s.stockQty, item.quantity < 0 && s.neg]}>{item.quantity}</Text>
               <Pressable style={s.adjBtn} onPress={() => setStockModal({ pid: item.id, label: item.label, qty: String(item.quantity) })} testID={`adjust-${item.id}`}>
                 <PencilSimple size={16} color={colors.onSurface} />
+              </Pressable>
+              <Pressable style={s.adjBtn} onPress={() => setDelProduct({ id: item.id, label: item.label })} testID={`delete-stock-${item.id}`}>
+                <Trash size={16} color={colors.negative} />
               </Pressable>
             </View>
           )}
@@ -195,6 +211,20 @@ export default function ColaboratorSheet() {
         </View>
       </Modal>
 
+      <Modal visible={!!delProduct} transparent animationType="fade" onRequestClose={() => setDelProduct(null)}>
+        <View style={[s.backdrop, { justifyContent: "flex-end" }]}>
+          <View style={s.sheet}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>STERGE PRODUS</Text>
+              <Pressable onPress={() => setDelProduct(null)} testID="close-del-product"><X size={20} color={colors.onSurface} /></Pressable>
+            </View>
+            <Text style={s.confirmText}>Produsul {delProduct?.label} va fi scos din catalog pentru toti partenerii. Comenzile existente raman neschimbate. Continui?</Text>
+            <Btn title="Da, sterge" variant="danger" onPress={() => removeProduct.mutate()} loading={removeProduct.isPending} testID="confirm-del-product" />
+            <Btn title="Anuleaza" variant="outline" onPress={() => setDelProduct(null)} />
+          </View>
+        </View>
+      </Modal>
+
       {/* Add client modal */}
       <Modal visible={clientModal} transparent animationType="fade" onRequestClose={() => setClientModal(false)}>
         <View style={s.backdrop}>
@@ -263,4 +293,5 @@ const useStyles = makeStyles((c) => ({
   sheetHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sheetTitle: { fontFamily: fonts.monoMedium, fontSize: 13, letterSpacing: 1, color: c.onSurface },
   sheetProd: { fontFamily: fonts.mono, fontSize: 14, color: c.onSurface },
+  confirmText: { fontFamily: fonts.mono, fontSize: 14, color: c.onSurface, lineHeight: 20 },
 }));

@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 4 (partial payments + product delete/edit + barcode-scanner freeze fix) tested end-to-end. Backend: 113/113 pytest tests pass (36 regression + 19 iter3 + 15 iter4 + 27 iter4_payments + 16 iter5) running sequentially (-n 0). New iter4_payments.py (27 tests) covers: TestSetup (activate pro, create test client), TestPartialPayments (order 'In asteptare' -> paid=0 payments=[], order 'Finalizat' -> paid=total + 1 payment, partial POST sets status 'Partial', second payment exceeding remaining is CLAMPED and status becomes 'Finalizat', paying already-finalized -> 400, negative/zero amount -> 400), TestStatusTransitions (PATCH /status 'Finalizat' sets paid=total and records a payment for remainder, PATCH 'In asteptare' resets paid=0 and clears payments), TestOrderEdit (PUT /orders/{id} with status 'Finalizat' sets paid=total, with 'In asteptare' resets paid=0, shrinking total clamps paid to new total), TestAggregations (dashboard collected/pending, collaborators list and detail collected/pending, client detail collected/pending, reports/monthly totals collected/pending), TestProductDeleteEdit (POST w/ barcode, PUT updates price+barcode, soft DELETE removes from GET /products and from collaborator stock_rows, 404 on unknown), TestOrderDeleteRestoresStock (delete order restores stock). Cleanup leaves pro plan + MOD SHOP SRL only. Frontend (mobile 390x844): login + dashboard verified rendering with new 'DE INCASAT' and 'INCASAT' RON boxes alongside existing COMENZI/PRODUSE VANDUTE/STOC TOTAL/PARTENERI (confirms partial-payment aggregation UI is wired to the dashboard). Code review confirms barcode-scanner.tsx line 36 `if (!visible) return null` fully unmounts the Modal+CameraView when closed (the freeze fix); produse.tsx hides the product add/edit Modal while `scanner===true` via visible={modal && !scanner} pattern so modals are never nested. comanda/[id].tsx exposes order-detail-total, order-paid, order-remaining, order-status-badge, collect-payment-button, pay-amount-input, confirm-payment-button, delete-order-button, edit-order-button, toggle-status-button, close-pay. comenzi.tsx exposes filter chips filter-Toate / filter-In-asteptare / filter-Partial / filter-Finalizat. produse.tsx exposes edit-price-input / edit-barcode-input / scan-product-barcode / delete-product-button / confirm-delete-product. All new testIDs present; no deprecated expo packages (expo-camera current); no SafeAreaView/StatusBar issues observed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_payments.py",
+    "/app/backend/tests/test_iter4.py",
+    "/app/backend/tests/test_iter5.py",
+    "/app/backend/tests/test_iter3.py",
+    "/app/backend/tests/test_backend_api.py",
+    "/app/test_reports/pytest/iter4_results.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "No code fixes required. All iteration 4 features (partial payments with status derivation, product delete/edit, scanner freeze fix via conditional null + nested-modal avoidance) work exactly as specified in the backend; UI testIDs are all wired correctly and dashboard renders DE INCASAT / INCASAT aggregation."
+  ],
+  "critical_code_review_comments": [
+    "server.py now ~967 lines - continues to grow, strongly recommend splitting into routers (auth/products/collaborators/clients/orders/consignments/payments/subscription/dashboard/reports) in a future refactor.",
+    "add_payment uses `o.get('paid', 0)` and `min(body.amount, remaining)` to clamp - correct behavior. One-time startup migration 'payments_v1' backfills paid=total for old 'Finalizat' orders and paid=0 otherwise before adding payments=[]; idempotent via meta doc.",
+    "_order_status derives status from (paid,total) consistently across POST /orders, POST /orders/{id}/payments, PATCH /status, PUT /orders; frontend reads status from server so client never has to re-derive.",
+    "DELETE /products soft-deletes via `deleted_at`; GET /products and collaborator detail stock_rows both filter {deleted_at: None} - no leak confirmed.",
+    "PUT /orders recomputes total+stock delta correctly; paid is set/reset based on new status, else clamped `min(existing.paid, new_total)` which matches the shrink-total test case."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter4_payments.py (new, 27 tests covering partial payments + product delete/edit + regression)"
+  ],
+  "success_rate": {
+    "backend": "100% (113/113: 36 regression + 19 iter3 + 15 iter4 + 27 iter4_payments + 16 iter5)",
+    "frontend": "Dashboard, login and all iter4 testIDs verified present in source and rendered DE INCASAT/INCASAT boxes confirmed on-screen; scanner freeze fix verified by code review (conditional null unmount + non-nested Modals). Deep interactive scanner->add-modal UI click sequence partially blocked by nav tab resolving to multiple matches but all required testIDs exist in the component tree."
+  },
+  "seed_data_creation": "iter4_payments suite creates TEST_PAY_CL client under MOD SHOP SRL, several test orders (waiting, final, status, edit, shrink) and one TEST_IT4 product; cleanup deletes all of them. User plan remains 'pro'. One soft-deleted TEST_IT4 product doc remains in db (not visible in any API). ocean-det-3l stock is topped up to 200 at setup.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run backend: `cd /app && python -m pytest backend/tests/ -n 0 --junitxml=/app/test_reports/pytest/pytest_results.xml` (pytest.ini forces -n 2 --dist loadscope; iter4_payments shares module-level state so always use -n 0; or run file alone). Partial payment API: POST /api/orders/{id}/payments {amount, note?} 200 on success / 400 on <=0 or already-finalized / 404 missing; PATCH /api/orders/{id}/status accepts 'Finalizat'|'In asteptare'|'Partial'; status is always re-derived server-side from (paid,total). Frontend tabs are lowercase 'Produse'/'Comenzi' in tab bar — use `[role=tab]` or get_by_text('Produse', exact=True) to avoid matching page title/screen heading. Scanner is unmounted completely when visible=false (BarcodeScanner returns null) so after close-scanner the parent modal (visible={modal && !scanner}) re-shows cleanly, hence no freeze.",
+  "rca_of_issue": "N/A - no bugs found in iteration 4. Scanner freeze bug fix (previously reported) is verified via code review: barcode-scanner.tsx line 36 `if (!visible) return null` removes CameraView from the tree completely instead of just toggling Modal visible prop, and produse.tsx + comanda-noua.tsx now gate their own Modal visible prop by `!scanner` so two Modals are never mounted simultaneously."
+}

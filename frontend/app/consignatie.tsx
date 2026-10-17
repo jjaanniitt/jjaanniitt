@@ -20,6 +20,7 @@ export default function Consignatie() {
   const { collabId } = useLocalSearchParams<{ collabId: string }>();
 
   const [pv, setPv] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [qty, setQty] = useState<Record<string, number>>({});
   const [scanner, setScanner] = useState(false);
   const [scanTarget, setScanTarget] = useState<any | null>(null);
@@ -55,7 +56,7 @@ export default function Consignatie() {
   const submit = useMutation({
     mutationFn: () => {
       const items = (productsQ.data ?? []).filter((p) => (qty[p.id] || 0) > 0).map((p) => ({ product_id: p.id, qty: qty[p.id] }));
-      return api(`/collaborators/${collabId}/consignments`, { method: "POST", body: { pv_number: pv, items } });
+      return api(`/collaborators/${collabId}/consignments`, { method: "POST", body: { pv_number: pv, date, items } });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["collaborator", collabId] });
@@ -78,6 +79,7 @@ export default function Consignatie() {
 
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Field label="Nr. proces verbal" value={pv} onChangeText={setPv} placeholder="ex. PV-2026-001" testID="pv-input" />
+        <Field label="Data proces verbal" value={date} onChangeText={setDate} placeholder="AAAA-LL-ZZ" testID="pv-date-input" />
 
         <Pressable style={s.scanBtn} onPress={() => setScanner(true)} testID="scan-consignment">
           <Barcode size={20} color={colors.onSurface} />

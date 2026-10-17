@@ -62,10 +62,10 @@ const useBtnStyles = makeStyles((c) => ({
 // ---------------------------------------------------------------------------
 export function StatusBadge({ status, testID }: { status: string; testID?: string }) {
   const s = useBadgeStyles();
-  const final = status === "Finalizat";
+  const kind = status === "Finalizat" ? "final" : status === "Partial" ? "partial" : "pending";
   return (
-    <View testID={testID} style={[s.badge, final ? s.final : s.pending]}>
-      <Text style={[s.text, final ? s.finalText : s.pendingText]}>{status.toUpperCase()}</Text>
+    <View testID={testID} style={[s.badge, s[kind]]}>
+      <Text style={[s.text, s[`${kind}Text` as const]]}>{status.toUpperCase()}</Text>
     </View>
   );
 }
@@ -74,9 +74,11 @@ const useBadgeStyles = makeStyles((c) => ({
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1 },
   final: { backgroundColor: c.success, borderColor: c.onSuccess },
   pending: { backgroundColor: c.warning, borderColor: c.onWarning },
+  partial: { backgroundColor: c.info, borderColor: c.onInfo },
   text: { fontFamily: fonts.monoMedium, fontSize: 10, letterSpacing: 0.5 },
   finalText: { color: c.onSuccess },
   pendingText: { color: c.onWarning },
+  partialText: { color: c.onInfo },
 }));
 
 // ---------------------------------------------------------------------------

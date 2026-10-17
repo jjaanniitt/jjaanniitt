@@ -3,7 +3,7 @@ import { FlatList, Modal, Pressable, ScrollView, Text, View } from "react-native
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { Package, Plus, X, Barcode } from "phosphor-react-native";
+import { Package, Plus, X, Barcode, Trash } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, EmptyState, Field } from "@/src/components/ui";
 import { BarcodeScanner } from "@/src/components/barcode-scanner";
@@ -19,11 +19,20 @@ export default function Produse() {
   const toast = useToast();
   const [cat, setCat] = useState("Toate");
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ category: "", variant: "", size: "", price: "" });
+  const [form, setForm] = useState({ category: "", variant: "", size: "", price: "", barcode: "" });
   const [edit, setEdit] = useState<{ id: string; label: string; price: string; barcode: string } | null>(null);
   const [scanner, setScanner] = useState(false);
+  const [scanFor, setScanFor] = useState<"add" | "edit" | null>(null);
+  const [confirmDel, setConfirmDel] = useState(false);
 
   const { data, isLoading } = useQuery({ queryKey: ["products"], queryFn: () => api<any[]>("/products") });
+
+  const onScanned = (code: string) => {
+    setScanner(false);
+    if (scanFor === "edit") setEdit((e) => (e ? { ...e, barcode: code } : e));
+    else setForm((f) => ({ ...f, barcode: code }));
+    setScanFor(null);
+  };
 
   const saveEdit = useMutation({
     mutationFn: () => api(`/products/${edit!.id}`, { method: "PUT", body: { price: parseInt(edit!.price || "0", 10), barcode: edit!.barcode } }),
@@ -31,13 +40,19 @@ export default function Produse() {
     onError: (e: any) => toast(e.message || "Eroare", "error"),
   });
 
+  const removeProduct = useMutation({
+    mutationFn: () => api(`/products/${edit!.id}`, { method: "DELETE" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["products"] }); setConfirmDel(false); setEdit(null); toast("Produs sters", "success"); },
+    onError: (e: any) => toast(e.message || "Eroare", "error"),
+  });
+
   const create = useMutation({
     mutationFn: () => api("/products", { method: "POST", body: {
-      category: form.category, variant: form.variant || form.category, size: form.size, price: parseInt(form.price || "0", 10),
+      category: form.category, variant: form.variant || form.category, size: form.size, price: parseInt(form.price || "0", 10), barcode: form.barcode || null,
     } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["products"] });
-      setModal(false); setForm({ category: "", variant: "", size: "", price: "" });
+      setModal(false); setForm({ category: "", variant: "", size: "", price: "", barcode: "" });
       toast("Produs adaugat", "success");
     },
     onError: (e: any) => toast(e.message || "Eroare", "error"),
@@ -96,7 +111,7 @@ export default function Produse() {
         <Btn title="Adauga produs" onPress={() => setModal(true)} icon={<Plus size={18} color={colors.onBrandPrimary} weight="bold" />} testID="add-product-button" />
       </View>
 
-      <Modal visible={modal} transparent animationType="fade" onRequestClose={() => setModal(false)}>
+      <Modal visible={modal && !scanner} transparent animationType="fade" onRequestClose={() => setModal(false)}>
         <View style={s.backdrop}>
           <KeyboardAwareScrollView contentContainerStyle={s.sheetScroll} keyboardShouldPersistTaps="handled" bottomOffset={20}>
             <View style={s.sheet}>
@@ -108,13 +123,15 @@ export default function Produse() {
               <Field label="Denumire / variant" value={form.variant} onChangeText={(v) => setForm((f) => ({ ...f, variant: v }))} placeholder="ex. Detergent" testID="product-variant-input" />
               <Field label="Gramaj" value={form.size} onChangeText={(v) => setForm((f) => ({ ...f, size: v }))} placeholder="ex. 3L" testID="product-size-input" />
               <Field label="Pret (RON)" value={form.price} onChangeText={(v) => setForm((f) => ({ ...f, price: v.replace(/[^0-9]/g, "") }))} placeholder="ex. 40" keyboardType="number-pad" testID="product-price-input" />
+              <Field label="Cod de bare (optional)" value={form.barcode} onChangeText={(v) => setForm((f) => ({ ...f, barcode: v }))} placeholder="scaneaza sau tasteaza" testID="product-barcode-input" />
+              <Btn title="Scaneaza cod de bare" variant="secondary" onPress={() => { setScanFor("add"); setScanner(true); }} icon={<Barcode size={18} color={colors.onBrandSecondary} weight="bold" />} testID="scan-add-barcode" />
               <Btn title="Salveaza produs" onPress={() => canSave && create.mutate()} loading={create.isPending} disabled={!canSave} testID="save-product-button" />
             </View>
           </KeyboardAwareScrollView>
         </View>
       </Modal>
 
-      <Modal visible={!!edit} transparent animationType="fade" onRequestClose={() => setEdit(null)}>
+      <Modal visible={!!edit && !scanner} transparent animationType="fade" onRequestClose={() => setEdit(null)}>
         <View style={s.backdrop}>
           <KeyboardAwareScrollView contentContainerStyle={s.sheetScroll} keyboardShouldPersistTaps="handled" bottomOffset={20}>
             <View style={s.sheet}>
@@ -124,14 +141,29 @@ export default function Produse() {
               </View>
               <Field label="Pret (RON)" value={edit?.price ?? ""} onChangeText={(v) => setEdit((e) => (e ? { ...e, price: v.replace(/[^0-9]/g, "") } : e))} keyboardType="number-pad" testID="edit-price-input" />
               <Field label="Cod de bare" value={edit?.barcode ?? ""} onChangeText={(v) => setEdit((e) => (e ? { ...e, barcode: v } : e))} placeholder="scaneaza sau tasteaza" testID="edit-barcode-input" />
-              <Btn title="Scaneaza cod de bare" variant="secondary" onPress={() => setScanner(true)} icon={<Barcode size={18} color={colors.onBrandSecondary} weight="bold" />} testID="scan-product-barcode" />
+              <Btn title="Scaneaza cod de bare" variant="secondary" onPress={() => { setScanFor("edit"); setScanner(true); }} icon={<Barcode size={18} color={colors.onBrandSecondary} weight="bold" />} testID="scan-product-barcode" />
               <Btn title="Salveaza" onPress={() => saveEdit.mutate()} loading={saveEdit.isPending} testID="save-edit-product" />
+              <Btn title="Sterge produs" variant="danger" onPress={() => setConfirmDel(true)} icon={<Trash size={18} color={colors.onBrandPrimary} weight="bold" />} testID="delete-product-button" />
             </View>
           </KeyboardAwareScrollView>
         </View>
       </Modal>
 
-      <BarcodeScanner visible={scanner} onClose={() => setScanner(false)} onScanned={(code) => { setScanner(false); setEdit((e) => (e ? { ...e, barcode: code } : e)); }} />
+      <Modal visible={confirmDel} transparent animationType="fade" onRequestClose={() => setConfirmDel(false)}>
+        <View style={[s.backdrop, { justifyContent: "flex-end" }]}>
+          <View style={s.sheet}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>STERGE PRODUS</Text>
+              <Pressable onPress={() => setConfirmDel(false)} testID="close-confirm-product"><X size={20} color={colors.onSurface} /></Pressable>
+            </View>
+            <Text style={s.confirmText}>Produsul {edit?.label} va fi scos din catalog. Comenzile existente raman neschimbate. Continui?</Text>
+            <Btn title="Da, sterge" variant="danger" onPress={() => removeProduct.mutate()} loading={removeProduct.isPending} testID="confirm-delete-product" />
+            <Btn title="Anuleaza" variant="outline" onPress={() => setConfirmDel(false)} />
+          </View>
+        </View>
+      </Modal>
+
+      <BarcodeScanner visible={scanner} onClose={() => { setScanner(false); setScanFor(null); }} onScanned={onScanned} />
     </View>
   );
 }
@@ -158,4 +190,5 @@ const useStyles = makeStyles((c) => ({
   sheet: { backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.borderStrong, padding: 20, gap: 14 },
   sheetHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sheetTitle: { fontFamily: fonts.monoMedium, fontSize: 13, letterSpacing: 1, color: c.onSurface },
+  confirmText: { fontFamily: fonts.mono, fontSize: 14, color: c.onSurface, lineHeight: 20 },
 }));

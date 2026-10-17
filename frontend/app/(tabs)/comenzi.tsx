@@ -10,7 +10,7 @@ import { api } from "@/src/api/client";
 import { formatRON, formatDate } from "@/src/lib/format";
 import { makeStyles, useTheme, fonts } from "@/src/theme";
 
-const FILTERS = ["Toate", "In asteptare", "Finalizat"] as const;
+const FILTERS = ["Toate", "In asteptare", "Partial", "Finalizat"] as const;
 
 export default function Comenzi() {
   const s = useStyles();

@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 5 small additions tested end-to-end. Backend: 119/119 pytest tests pass (+6 new in test_iter5_date.py). The 6 new tests verify: (a) POST /api/collaborators/{id}/consignments with explicit ISO 'date' persists the exact value in the returned doc AND in GET /collaborators/{id}.consignments[] AND still increments stock by qty; (b) when 'date' is omitted the backend fills now_iso() (backward compat); (c) product soft-delete regression (unknown id -> 404, create+delete removes from GET /products and from collaborator stock_rows). Frontend (mobile 390x844): login (login-email-input/login-password-input/login-submit-button), navigated via /colaboratori -> MOD SHOP SRL. Stoc tab (default) renders all 45 catalog rows with BOTH adjust-<id> (pencil) and delete-stock-<id> (trash) buttons; tapping delete-stock-ocean-det-3l opens 'STERGE PRODUS' confirm modal exposing confirm-del-product and close-del-product testIDs; cancelled without deleting. Consignatie screen (via add-consignment on collaborator header) renders BOTH 'Nr. proces verbal' (pv-input) and 'Data proces verbal' (pv-date-input) fields with default date today = 2026-10-17, plus scan-consignment button, cons-stepper-<pid>-inc / -dec and cons-total. Filled pv-input='PV-UI-TEST-01', pv-date-input='2026-02-10', incremented ocean-det-3l stepper twice -> cons-total='2 buc', submit-consignment NOT disabled, tap submitted successfully: collaborator header total_stock went 70 -> 72 buc and ocean-det-3l intrat 35 -> 37 / qty 55 -> 57. Cleanup: stock reset to 35 for ocean-det-3l; the test UI consignment was removed. Note: there is no DELETE /api/consignments/{id} endpoint (returned 404) - consignments are append-only history, which is correct for an audit log but means test data accumulates; this is a pre-existing design, not a regression. SCAN flow (camera) is correctly code-gated to native builds (expo-camera CameraView) and not testable on web preview, as noted by main agent. No deprecated expo packages detected. No React Native red screens, no console errors beyond the expected Metro websocket warning.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter5_date.py",
+    "/app/backend/tests/test_iter5.py",
+    "/app/backend/tests/test_iter4_payments.py",
+    "/app/backend/tests/test_iter4.py",
+    "/app/backend/tests/test_iter3.py",
+    "/app/backend/tests/test_backend_api.py",
+    "/app/test_reports/pytest/iter5_date_results.xml"
+  ],
+  "action_items": [
+    "No fixes required. Both iteration 5 additions (consignment pv_date + product delete from Stoc tab) work exactly per spec on backend + frontend.",
+    "(Optional/future) Consider adding a DELETE /api/consignments/{id} endpoint if users need to retract an erroneous PV; today it is append-only and test data (e.g. PV-TEST-5, PV-DATE-ITER5) accumulates in MOD SHOP SRL's consignments list (currently 12 entries). Stock quantities themselves are reset by the test suite so this is cosmetic."
+  ],
+  "critical_code_review_comments": [
+    "server.py line 585: doc['date'] = body.date or now_iso() - correct: honours a provided date (any ISO/freeform string), defaults to server-side timestamp otherwise. No validation on the date string shape, but UI uses a date picker format AAAA-LL-ZZ so acceptable.",
+    "consignatie.tsx line 23 initialises date = new Date().toISOString().slice(0, 10) (YYYY-MM-DD) and posts it as-is; backend accepts both YYYY-MM-DD and full ISO strings (test_iter5_date verifies full ISO round-trip). Consistent.",
+    "colaborator/[id].tsx line 136 wires delete-stock-<id> onto a Pressable that opens a confirm modal (lines 215-227) with confirm-del-product calling DELETE /api/products/{id} via removeProduct mutation - exactly matches server.py line 441 soft-delete handler.",
+    "No HTML tags used; all text wrapped in <Text>; StyleSheet-based (makeStyles). SafeAreaView usage is consistent across screens. No deprecated expo-av/expo-barcode-scanner/expo-background-fetch references.",
+    "server.py has grown to ~970 lines - continuing refactor-into-routers recommendation from iter4."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter5_date.py (new, 6 tests for consignment date field + product delete regression)"
+  ],
+  "success_rate": {
+    "backend": "100% (119/119: 36 backend_api + 19 iter3 + 15 iter4 + 27 iter4_payments + 16 iter5 + 6 iter5_date)",
+    "frontend": "100% - All target testIDs verified: pv-input, pv-date-input, scan-consignment, cons-stepper-<id>-inc, cons-total, submit-consignment on Consignatie screen; adjust-<id>, delete-stock-<id>, confirm-del-product, close-del-product on Stoc tab. End-to-end submit of a consignment with date field correctly incremented collaborator stock (70 -> 72 buc, ocean-det-3l 55 -> 57)."
+  },
+  "seed_data_creation": "test_iter5_date temporarily creates product 'TEST_IT5_SMALL / 1L / barcode 7777000011111' then soft-deletes it (document remains with deleted_at set, not visible via any API). Two throwaway consignments PV-DATE-ITER5 and PV-NO-DATE-ITER5 remain in MOD SHOP SRL's consignments list (no DELETE endpoint); stock delta from these (ocean-det-3l +5) was reset to 35 at the end of post-run cleanup. Plan kept as pro. MOD SHOP SRL preserved.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run backend: `cd /app && python -m pytest backend/tests/ -n 0 --junitxml=/app/test_reports/pytest/pytest_results.xml` (sequential; pytest.ini defaults to -n 2 loadscope but iter4_payments and iter5_date share module-level state - keep -n 0). Login screen uses testIDs login-email-input / login-password-input / login-submit-button (NOT login-email/login-password). Collaborator detail route is /colaborator/<id> (singular). Default tab on collaborator detail is Stoc, so delete-stock-* and adjust-* are visible immediately. Consignatie is opened from the collaborator header via add-consignment Pressable (not a route in tabs). pv-date-input accepts freeform strings - backend stores as-is. Scanner (scan-consignment) is unmounted on web (CameraView), do not attempt camera flows.",
+  "rca_of_issue": "N/A - no bugs."
+}

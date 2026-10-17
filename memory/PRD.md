@@ -28,6 +28,10 @@ Aplicatie mobila de logistica (consignatie) pentru distribuitor de detergenti. F
 - Scanarea cod de bare + poza profil din camera functioneaza pe build real pe telefon (nu in web preview); in Expo Go pe telefon real camera merge.
 - Plata reala abonament se leaga la publicare (RevenueCat). Acum activare manuala din ecranul Abonament.
 
+## Implemented (continuare)
+- [x] (iter4) Scanare cu prompt de cantitate la comenzi, editare/stergere produse, incasare partiala (paid/payments, status Partial), toate totalurile pe baza de paid/ramas
+- [x] (iter5) Data proces verbal la consignatie, scanare cu cantitate la consignatie, stergere produse direct din tab-ul Stoc al colaboratorului
+
 ## Backlog
 - P1: Plata reala in-app (RevenueCat) la publicare
-- P2: Editare/stergere intrari consignatie; grafice avansate; multi-user
+- P2: Editare/stergere intrari consignatie (PV); grafice avansate; multi-user

@@ -201,6 +201,12 @@ class ClientCreate(BaseModel):
     notes: Optional[str] = ""
 
 
+class ClientUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    notes: Optional[str] = None
+
+
 class StockAdjust(BaseModel):
     product_id: str
     quantity: int
@@ -267,6 +273,14 @@ async def seed():
         await db.products.update_many({"barcode": {"$exists": False}}, {"$set": {"barcode": None}})
         await db.users.update_many({"plan": {"$exists": False}}, {"$set": {"plan": "free", "avatar_path": None, "name": "Administrator"}})
         await db.meta.insert_one({"id": "reset_v2", "done": True, "created_at": now_iso()})
+    # backfill partial-payment fields on existing orders
+    pay_mig = await db.meta.find_one({"id": "payments_v1"})
+    if not pay_mig:
+        async for o in db.orders.find({"paid": {"$exists": False}}):
+            total = o.get("total", 0)
+            paid = total if o.get("status") == "Finalizat" else 0
+            await db.orders.update_one({"id": o["id"]}, {"$set": {"paid": paid, "payments": []}})
+        await db.meta.insert_one({"id": "payments_v1", "done": True, "created_at": now_iso()})
     logger.info("Seed complete")
 
 
@@ -367,12 +381,16 @@ async def get_avatar(token: Optional[str] = None, user_id: Optional[str] = None)
 # ---------------------------------------------------------------------------
 @api_router.get("/products")
 async def list_products(user=Depends(current_user)):
-    items = await db.products.find({}, {"_id": 0}).sort("order", 1).to_list(1000)
+    items = await db.products.find(
+        {"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}, {"_id": 0}
+    ).sort("order", 1).to_list(1000)
     return items
 
 
 async def _products_map() -> Dict[str, dict]:
-    items = await db.products.find({}, {"_id": 0}).to_list(1000)
+    items = await db.products.find(
+        {"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}, {"_id": 0}
+    ).to_list(1000)
     return {p["id"]: p for p in items}
 
 
@@ -418,6 +436,14 @@ async def update_product(product_id: str, body: ProductUpdate, user=Depends(curr
     return p
 
 
+@api_router.delete("/products/{product_id}")
+async def delete_product(product_id: str, user=Depends(current_user)):
+    res = await db.products.update_one({"id": product_id}, {"$set": {"deleted_at": now_iso()}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Produs negasit")
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------------
 # Settings (low stock threshold)
 # ---------------------------------------------------------------------------
@@ -455,8 +481,8 @@ async def _collab_totals(collab: dict) -> dict:
     total_stock = sum(stock.values())
     negatives = [pid for pid, q in stock.items() if q < 0]
     orders = await db.orders.find({"collaborator_id": collab["id"], "deleted_at": None}, {"_id": 0}).to_list(5000)
-    collected = sum(o["total"] for o in orders if o["status"] == "Finalizat")
-    pending = sum(o["total"] for o in orders if o["status"] != "Finalizat")
+    collected = sum(o.get("paid", 0) for o in orders)
+    pending = sum(o["total"] - o.get("paid", 0) for o in orders)
     return {"total_stock": total_stock, "negative_count": len(negatives),
             "orders_count": len(orders), "collected": collected, "pending": pending}
 
@@ -504,8 +530,8 @@ async def get_collaborator(collab_id: str, user=Depends(current_user)):
     for cl in clients:
         c_orders = await db.orders.find({"client_id": cl["id"], "deleted_at": None}, {"_id": 0}).to_list(2000)
         client_rows.append({**cl, "orders_count": len(c_orders),
-                            "collected": sum(o["total"] for o in c_orders if o["status"] == "Finalizat"),
-                            "pending": sum(o["total"] for o in c_orders if o["status"] != "Finalizat")})
+                            "collected": sum(o.get("paid", 0) for o in c_orders),
+                            "pending": sum(o["total"] - o.get("paid", 0) for o in c_orders)})
     orders = await db.orders.find({"collaborator_id": collab_id, "deleted_at": None}, {"_id": 0}).sort("created_at", -1).to_list(2000)
     consignments = await db.consignments.find({"collaborator_id": collab_id, "deleted_at": None}, {"_id": 0}).sort("created_at", -1).to_list(2000)
     intrat: Dict[str, int] = {}
@@ -602,14 +628,35 @@ async def get_client(client_id: str, user=Depends(current_user)):
         raise HTTPException(status_code=404, detail="Client negasit")
     orders = await db.orders.find({"client_id": client_id, "deleted_at": None}, {"_id": 0}).sort("created_at", -1).to_list(2000)
     return {**cl, "orders": orders, "orders_count": len(orders),
-            "collected": sum(o["total"] for o in orders if o["status"] == "Finalizat"),
-            "pending": sum(o["total"] for o in orders if o["status"] != "Finalizat")}
+            "collected": sum(o.get("paid", 0) for o in orders),
+            "pending": sum(o["total"] - o.get("paid", 0) for o in orders)}
 
 
 @api_router.delete("/clients/{client_id}")
 async def delete_client(client_id: str, user=Depends(current_user)):
     await db.clients.update_one({"id": client_id}, {"$set": {"deleted_at": now_iso()}})
     return {"ok": True}
+
+
+@api_router.put("/clients/{client_id}")
+async def update_client(client_id: str, body: ClientUpdate, user=Depends(current_user)):
+    cl = await db.clients.find_one({"id": client_id, "deleted_at": None})
+    if not cl:
+        raise HTTPException(status_code=404, detail="Client negasit")
+    sets = {}
+    if body.name is not None and body.name.strip():
+        sets["name"] = body.name.strip()
+    if body.phone is not None:
+        sets["phone"] = body.phone.strip()
+    if body.notes is not None:
+        sets["notes"] = body.notes.strip()
+    if sets:
+        await db.clients.update_one({"id": client_id}, {"$set": sets})
+        # keep client_name on existing orders in sync
+        if "name" in sets:
+            await db.orders.update_many({"client_id": client_id}, {"$set": {"client_name": sets["name"]}})
+    u = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    return u
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +678,14 @@ async def get_order(order_id: str, user=Depends(current_user)):
     if not o:
         raise HTTPException(status_code=404, detail="Comanda negasita")
     return o
+
+
+def _order_status(paid: float, total: float) -> str:
+    if paid <= 0:
+        return "In asteptare"
+    if paid >= total:
+        return "Finalizat"
+    return "Partial"
 
 
 @api_router.post("/orders")
@@ -665,11 +720,14 @@ async def create_order(body: OrderCreate, user=Depends(current_user)):
     if not lines:
         raise HTTPException(status_code=400, detail="Comanda nu are produse")
     document_no = await next_document_no()
+    req_status = body.status if body.status in ("In asteptare", "Finalizat") else "In asteptare"
+    paid = total if req_status == "Finalizat" else 0
+    payments = [{"amount": total, "date": body.date or now_iso(), "note": "Incasat integral"}] if paid else []
     order = {"id": new_id(), "document_no": document_no,
              "collaborator_id": collab["id"], "collaborator_name": collab["name"],
              "client_id": cl["id"], "client_name": cl["name"], "address": body.address or "",
-             "lines": lines, "total": total,
-             "status": body.status if body.status in ("In asteptare", "Finalizat") else "In asteptare",
+             "lines": lines, "total": total, "paid": paid, "payments": payments,
+             "status": _order_status(paid, total),
              "date": body.date or now_iso(), "created_at": now_iso(), "deleted_at": None}
     await db.orders.insert_one(order)
     await db.collaborators.update_one({"id": collab["id"]}, {"$set": {"stock": stock}})
@@ -717,9 +775,16 @@ async def update_order(order_id: str, body: OrderUpdate, user=Depends(current_us
     if not lines:
         raise HTTPException(status_code=400, detail="Comanda nu are produse")
     await db.collaborators.update_one({"id": collab["id"]}, {"$set": {"stock": stock}})
+    req_status = body.status if body.status in ("In asteptare", "Finalizat") else existing.get("status", "In asteptare")
+    if req_status == "Finalizat":
+        paid = total
+    elif req_status == "In asteptare":
+        paid = 0
+    else:
+        paid = min(existing.get("paid", 0), total)
     await db.orders.update_one({"id": order_id}, {"$set": {
         "client_id": cl["id"], "client_name": cl["name"], "lines": lines, "total": total,
-        "status": body.status if body.status in ("In asteptare", "Finalizat") else existing["status"],
+        "paid": paid, "status": _order_status(paid, total),
         "date": body.date or existing["date"],
     }})
     updated = await db.orders.find_one({"id": order_id}, {"_id": 0})
@@ -733,8 +798,43 @@ async def update_status(order_id: str, body: StatusUpdate, user=Depends(current_
     o = await db.orders.find_one({"id": order_id, "deleted_at": None})
     if not o:
         raise HTTPException(status_code=404, detail="Comanda negasita")
-    await db.orders.update_one({"id": order_id}, {"$set": {"status": body.status}})
+    total = o.get("total", 0)
+    if body.status == "Finalizat":
+        paid = total
+        payments = list(o.get("payments", []))
+        remaining = total - o.get("paid", 0)
+        if remaining > 0:
+            payments.append({"amount": remaining, "date": now_iso(), "note": "Incasat integral"})
+    else:
+        paid = 0
+        payments = []
+    await db.orders.update_one({"id": order_id}, {"$set": {"status": _order_status(paid, total), "paid": paid, "payments": payments}})
     return {"ok": True}
+
+
+class PaymentCreate(BaseModel):
+    amount: float
+    note: Optional[str] = ""
+
+
+@api_router.post("/orders/{order_id}/payments")
+async def add_payment(order_id: str, body: PaymentCreate, user=Depends(current_user)):
+    o = await db.orders.find_one({"id": order_id, "deleted_at": None})
+    if not o:
+        raise HTTPException(status_code=404, detail="Comanda negasita")
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="Suma trebuie sa fie pozitiva")
+    total = o.get("total", 0)
+    prev = o.get("paid", 0)
+    remaining = total - prev
+    if remaining <= 0:
+        raise HTTPException(status_code=400, detail="Comanda este deja incasata integral")
+    amount = min(body.amount, remaining)
+    paid = prev + amount
+    payments = list(o.get("payments", []))
+    payments.append({"amount": amount, "date": now_iso(), "note": body.note or ""})
+    await db.orders.update_one({"id": order_id}, {"$set": {"paid": paid, "payments": payments, "status": _order_status(paid, total)}})
+    return await db.orders.find_one({"id": order_id}, {"_id": 0})
 
 
 @api_router.delete("/orders/{order_id}")
@@ -771,8 +871,8 @@ async def dashboard(period: str = "all", user=Depends(current_user)):
         orders = all_orders
 
     total_sold = sum(ln["qty"] for o in orders for ln in o["lines"])
-    collected = sum(o["total"] for o in orders if o["status"] == "Finalizat")
-    pending = sum(o["total"] for o in orders if o["status"] != "Finalizat")
+    collected = sum(o.get("paid", 0) for o in orders)
+    pending = sum(o["total"] - o.get("paid", 0) for o in orders)
 
     by_category: Dict[str, dict] = {}
     by_product: Dict[str, dict] = {}
@@ -828,10 +928,8 @@ async def monthly_report(month: Optional[str] = None, user=Depends(current_user)
                                        "total": 0, "collected": 0, "pending": 0})
         c["orders_count"] += 1
         c["total"] += o["total"]
-        if o["status"] == "Finalizat":
-            c["collected"] += o["total"]
-        else:
-            c["pending"] += o["total"]
+        c["collected"] += o.get("paid", 0)
+        c["pending"] += o["total"] - o.get("paid", 0)
         for ln in o["lines"]:
             p = by_product.setdefault(ln["product_id"], {"label": ln["label"], "qty": 0, "value": 0})
             p["qty"] += ln["qty"]
@@ -840,8 +938,8 @@ async def monthly_report(month: Optional[str] = None, user=Depends(current_user)
     totals = {
         "orders_count": len(month_orders),
         "total": sum(o["total"] for o in month_orders),
-        "collected": sum(o["total"] for o in month_orders if o["status"] == "Finalizat"),
-        "pending": sum(o["total"] for o in month_orders if o["status"] != "Finalizat"),
+        "collected": sum(o.get("paid", 0) for o in month_orders),
+        "pending": sum(o["total"] - o.get("paid", 0) for o in month_orders),
         "items": sum(ln["qty"] for o in month_orders for ln in o["lines"]),
     }
     return {

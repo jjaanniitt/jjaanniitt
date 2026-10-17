@@ -33,8 +33,10 @@ export function BarcodeScanner({
     onScanned(data);
   };
 
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal visible animationType="slide" onRequestClose={onClose}>
       <View style={s.root}>
         <View style={s.head}>
           <Text style={s.title}>SCANEAZA COD DE BARE</Text>
@@ -46,7 +48,8 @@ export function BarcodeScanner({
             <CameraView
               style={s.camera}
               facing="back"
-              barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "qr"] }}
+              autofocus="on"
+              barcodeScannerSettings={{ barcodeTypes: ["ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "code93", "itf14", "codabar"] }}
               onBarcodeScanned={handle}
             />
             <View style={s.frame} pointerEvents="none" />
