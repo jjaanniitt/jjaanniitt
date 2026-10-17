@@ -1,0 +1,210 @@
+import { useCallback, useState } from "react";
+import { FlatList, Modal, Pressable, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import { X, FilePdf, CaretRight, UserPlus, PencilSimple } from "phosphor-react-native";
+import { AppHeader } from "@/src/components/header";
+import { Btn, Field, StatusBadge } from "@/src/components/ui";
+import { useToast } from "@/src/components/toast";
+import { api } from "@/src/api/client";
+import { formatRON } from "@/src/lib/format";
+import { exportCollaboratorPdf } from "@/src/lib/pdf";
+import { makeStyles, useTheme, fonts } from "@/src/theme";
+
+export default function ColaboratorSheet() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const s = useStyles();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [tab, setTab] = useState<"Stoc" | "Clienti">("Stoc");
+
+  const [stockModal, setStockModal] = useState<{ pid: string; label: string; qty: string } | null>(null);
+  const [clientModal, setClientModal] = useState(false);
+  const [clientName, setClientName] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
+
+  const { data, refetch, isLoading } = useQuery({ queryKey: ["collaborator", id], queryFn: () => api<any>(`/collaborators/${id}`), enabled: !!id });
+  useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
+
+  const saveStock = useMutation({
+    mutationFn: () => api(`/collaborators/${id}/stock`, { method: "PUT", body: { product_id: stockModal!.pid, quantity: parseInt(stockModal!.qty || "0", 10) } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["collaborator", id] });
+      qc.invalidateQueries({ queryKey: ["collaborators"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      setStockModal(null);
+      toast("Stoc actualizat", "success");
+    },
+    onError: (e: any) => toast(e.message || "Eroare", "error"),
+  });
+
+  const addClient = useMutation({
+    mutationFn: () => api(`/collaborators/${id}/clients`, { method: "POST", body: { name: clientName, phone: clientPhone } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["collaborator", id] });
+      setClientModal(false); setClientName(""); setClientPhone("");
+      toast("Client adaugat", "success");
+    },
+    onError: (e: any) => toast(e.message || "Eroare", "error"),
+  });
+
+  const exportPdf = async () => {
+    try { await exportCollaboratorPdf(data); } catch { toast("Export esuat", "error"); }
+  };
+
+  return (
+    <View style={s.root}>
+      <AppHeader
+        title={data?.name ?? "Colaborator"}
+        subtitle={data ? `${data.total_stock} buc · ${formatRON(data.pending)} de incasat` : undefined}
+        onBack={() => router.back()}
+        right={
+          <Pressable onPress={exportPdf} style={s.pdfBtn} testID="export-collab-pdf" disabled={!data}>
+            <FilePdf size={20} color={colors.onSurface} />
+          </Pressable>
+        }
+      />
+
+      {/* Totals */}
+      {data ? (
+        <View style={s.totals}>
+          <Totle label="INCASAT" value={formatRON(data.collected)} />
+          <Totle label="DE INCASAT" value={formatRON(data.pending)} emphasis={data.pending > 0} />
+          <Totle label="COMENZI" value={String(data.orders_count)} />
+        </View>
+      ) : null}
+
+      {/* Tabs */}
+      <View style={s.tabRow}>
+        {(["Stoc", "Clienti"] as const).map((t) => (
+          <Pressable key={t} onPress={() => setTab(t)} style={[s.tab, tab === t && s.tabActive]} testID={`tab-${t}`}>
+            <Text style={[s.tabText, tab === t && s.tabTextActive]}>{t.toUpperCase()}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {tab === "Stoc" ? (
+        <FlatList
+          data={data?.stock_rows ?? []}
+          keyExtractor={(p) => p.id}
+          contentContainerStyle={s.listContent}
+          renderItem={({ item }) => (
+            <View style={s.stockRow} testID={`stock-${item.id}`}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.stockName}>{item.label}</Text>
+                <Text style={s.stockPrice}>{item.price} RON</Text>
+              </View>
+              <Text style={[s.stockQty, item.quantity < 0 && s.neg]}>{item.quantity}</Text>
+              <Pressable style={s.adjBtn} onPress={() => setStockModal({ pid: item.id, label: item.label, qty: String(item.quantity) })} testID={`adjust-${item.id}`}>
+                <PencilSimple size={16} color={colors.onSurface} />
+              </Pressable>
+            </View>
+          )}
+        />
+      ) : (
+        <FlatList
+          data={data?.clients ?? []}
+          keyExtractor={(c) => c.id}
+          contentContainerStyle={[s.listContent, { paddingBottom: 110 }]}
+          renderItem={({ item }) => (
+            <Pressable style={s.clientRow} onPress={() => router.push(`/client/${item.id}`)} testID={`client-row-${item.id}`}>
+              <View style={{ flex: 1 }}>
+                <Text style={s.clientName}>{item.name}</Text>
+                <Text style={s.clientMeta}>{item.orders_count} comenzi · {item.phone || "fara telefon"}</Text>
+              </View>
+              {item.pending > 0 ? <StatusBadge status="In asteptare" /> : null}
+              <CaretRight size={16} color={colors.muted} />
+            </Pressable>
+          )}
+          ListEmptyComponent={!isLoading ? <Text style={s.empty}>Niciun client inca.</Text> : null}
+        />
+      )}
+
+      {tab === "Clienti" ? (
+        <View style={[s.cta, { paddingBottom: insets.bottom + 10 }]}>
+          <Btn title="Adauga client" onPress={() => setClientModal(true)} icon={<UserPlus size={18} color={colors.onBrandPrimary} weight="bold" />} testID="add-client-button" />
+        </View>
+      ) : null}
+
+      {/* Stock adjust modal */}
+      <Modal visible={!!stockModal} transparent animationType="fade" onRequestClose={() => setStockModal(null)}>
+        <View style={s.backdrop}>
+          <KeyboardAwareScrollView contentContainerStyle={s.sheetScroll} keyboardShouldPersistTaps="handled" bottomOffset={20}>
+            <View style={s.sheet}>
+              <View style={s.sheetHead}>
+                <Text style={s.sheetTitle}>AJUSTEAZA STOC</Text>
+                <Pressable onPress={() => setStockModal(null)} testID="close-stock-modal"><X size={20} color={colors.onSurface} /></Pressable>
+              </View>
+              <Text style={s.sheetProd}>{stockModal?.label}</Text>
+              <Field label="Cantitate in stoc" value={stockModal?.qty ?? ""} onChangeText={(v) => setStockModal((m) => (m ? { ...m, qty: v.replace(/[^0-9-]/g, "") } : m))} keyboardType="numbers-and-punctuation" placeholder="0" autoFocus testID="stock-qty-input" />
+              <Btn title="Salveaza stoc" onPress={() => saveStock.mutate()} loading={saveStock.isPending} testID="save-stock-button" />
+            </View>
+          </KeyboardAwareScrollView>
+        </View>
+      </Modal>
+
+      {/* Add client modal */}
+      <Modal visible={clientModal} transparent animationType="fade" onRequestClose={() => setClientModal(false)}>
+        <View style={s.backdrop}>
+          <KeyboardAwareScrollView contentContainerStyle={s.sheetScroll} keyboardShouldPersistTaps="handled" bottomOffset={20}>
+            <View style={s.sheet}>
+              <View style={s.sheetHead}>
+                <Text style={s.sheetTitle}>CLIENT NOU</Text>
+                <Pressable onPress={() => setClientModal(false)} testID="close-client-modal2"><X size={20} color={colors.onSurface} /></Pressable>
+              </View>
+              <Field label="Nume client" value={clientName} onChangeText={setClientName} placeholder="ex. Ion Popescu" autoFocus testID="client-name-input2" />
+              <Field label="Telefon (optional)" value={clientPhone} onChangeText={setClientPhone} placeholder="07xx xxx xxx" keyboardType="phone-pad" testID="client-phone-input2" />
+              <Btn title="Salveaza client" onPress={() => clientName.trim() && addClient.mutate()} loading={addClient.isPending} disabled={!clientName.trim()} testID="save-client-button2" />
+            </View>
+          </KeyboardAwareScrollView>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+function Totle({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
+  const s = useStyles();
+  return (
+    <View style={s.totle}>
+      <Text style={s.totleLabel}>{label}</Text>
+      <Text style={[s.totleValue, emphasis && s.neg]} numberOfLines={1} adjustsFontSizeToFit>{value}</Text>
+    </View>
+  );
+}
+
+const useStyles = makeStyles((c) => ({
+  root: { flex: 1, backgroundColor: c.surface },
+  pdfBtn: { width: 36, height: 36, borderWidth: 1, borderColor: c.borderStrong, alignItems: "center", justifyContent: "center" },
+  totals: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: c.borderStrong },
+  totle: { flex: 1, padding: 12, borderRightWidth: 1, borderRightColor: c.border },
+  totleLabel: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 0.5, color: c.muted },
+  totleValue: { fontFamily: fonts.monoMedium, fontSize: 15, color: c.onSurface, marginTop: 4 },
+  neg: { color: c.negative },
+  tabRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: c.borderStrong },
+  tab: { flex: 1, paddingVertical: 14, alignItems: "center", backgroundColor: c.surface },
+  tabActive: { backgroundColor: c.surfaceInverse },
+  tabText: { fontFamily: fonts.monoMedium, fontSize: 12, letterSpacing: 1, color: c.onSurface },
+  tabTextActive: { color: c.onSurfaceInverse },
+  listContent: { padding: 16, paddingBottom: 32, gap: 10 },
+  stockRow: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12, paddingVertical: 10 },
+  stockName: { fontFamily: fonts.mono, fontSize: 13, color: c.onSurface },
+  stockPrice: { fontFamily: fonts.mono, fontSize: 11, color: c.muted, marginTop: 2 },
+  stockQty: { fontFamily: fonts.monoMedium, fontSize: 18, color: c.onSurface, minWidth: 40, textAlign: "right" },
+  adjBtn: { width: 36, height: 36, borderWidth: 1, borderColor: c.borderStrong, alignItems: "center", justifyContent: "center" },
+  clientRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: c.borderStrong, padding: 14, backgroundColor: c.surface },
+  clientName: { fontFamily: fonts.displayMedium, fontSize: 16, color: c.onSurface },
+  clientMeta: { fontFamily: fonts.mono, fontSize: 11, color: c.muted, marginTop: 2 },
+  empty: { fontFamily: fonts.mono, fontSize: 13, color: c.muted, textAlign: "center", paddingVertical: 32 },
+  cta: { position: "absolute", left: 0, right: 0, bottom: 0, padding: 16, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.borderStrong },
+  backdrop: { flex: 1, backgroundColor: "rgba(17,17,17,0.6)" },
+  sheetScroll: { flexGrow: 1, justifyContent: "flex-end" },
+  sheet: { backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.borderStrong, padding: 20, gap: 16 },
+  sheetHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  sheetTitle: { fontFamily: fonts.monoMedium, fontSize: 13, letterSpacing: 1, color: c.onSurface },
+  sheetProd: { fontFamily: fonts.mono, fontSize: 14, color: c.onSurface },
+}));

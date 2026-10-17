@@ -1,0 +1,174 @@
+{
+  "app_name": "Node Gestiune",
+  "personality": "5 Brutalist Mobile",
+  "personality_one_liner": "A sharp, data-dense, and highly operational command center built for efficiency, replacing soft aesthetics with stark industrial utility.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#111111",
+    "surfaceSecondary": "#F4F4F5",
+    "onSurfaceSecondary": "#111111",
+    "surfaceTertiary": "#E4E4E7",
+    "onSurfaceTertiary": "#111111",
+    "surfaceInverse": "#111111",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#111111",
+    "brandPrimary": "#111111",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#52525B",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#E4E4E7",
+    "onBrandTertiary": "#111111",
+    "success": "#E3FCEF",
+    "onSuccess": "#0F5132",
+    "warning": "#FFF3CD",
+    "onWarning": "#664D03",
+    "error": "#F8D7DA",
+    "onError": "#842029",
+    "info": "#E2E3E5",
+    "onInfo": "#383D41",
+    "border": "#D4D4D8",
+    "borderStrong": "#111111",
+    "divider": "#E4E4E7",
+    "muted": "#71717A",
+    "onBrand": "#FFFFFF"
+  },
+  "typography": {
+    "displayFontFamily": "Cabinet Grotesk",
+    "textFontFamily": "IBM Plex Mono",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Rigid grids, hard alignment, intentional whitespace imbalance. No soft padding. Use thick borders (1pt max) structurally.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 0,
+    "md": 0,
+    "lg": 0,
+    "pill": 0
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [
+      "Use solid surfaceInverse or surfaceSecondary for sticky headers."
+    ],
+    "dont's": [
+      "Do not use blur, translucency, or glassmorphism. Brutalism relies on solid colors and strict opacity."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "solid surfaceInverse",
+      "android": "solid surfaceInverse",
+      "low_end_android_fallback": "solid surfaceInverse"
+    },
+    "image": "expo-image",
+    "blur": "solid surfaceSecondary",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Login",
+      "purpose": "Authenticate operator via email/password, showcasing 'Powered by Node Intelligence'.",
+      "states": {
+        "loading": "Monochrome spinner with mono-font 'LOADING...' text.",
+        "empty": "N/A",
+        "error": "Input borders turn to error color, sharp error text below."
+      },
+      "layout": "Edge-to-edge layout, massive text inputs with 1pt borderStrong. A sharp, high-contrast submit button. The Node Intelligence branding sits at the safe-area bottom in pure mono font. Background uses the abstract node image overlaid with a heavy gradient scrim."
+    },
+    {
+      "name": "Dashboard",
+      "purpose": "At-a-glance KPIs for volume, stock, and revenue.",
+      "states": {
+        "loading": "Grid of surfaceTertiary rectangles.",
+        "empty": "No data available.",
+        "error": "High-contrast error message block."
+      },
+      "layout": "Grid layout of square and rectangular metric cards with 1pt borderStrong and 0 radius. High-impact huge numbers (IBM Plex Mono). A prominent alert block (using error colors) for products with negative stock."
+    },
+    {
+      "name": "Collaborators",
+      "purpose": "Manage consignment shops (e.g. Mod Shop SRL) and their individual client sheets.",
+      "states": {
+        "loading": "Row skeletons with thick dividers.",
+        "empty": "Graphic of empty warehouse shelves + 'Niciun colaborator'.",
+        "error": "Error block with retry action."
+      },
+      "layout": "List view with thick dividers. Each row shows shop name, total stock held, and uncollected debt (RON). Tapping opens a 'Collaborator Sheet' with tabs (Stoc / Clienti) built from hard-edged borders. Drilldown to 'Clienti' shows their order history and paid status."
+    },
+    {
+      "name": "Orders",
+      "purpose": "Create and track fulfillment and pending orders.",
+      "states": {
+        "loading": "List skeletons.",
+        "empty": "Icon of empty box + 'Nu exista comenzi'.",
+        "error": "Error block."
+      },
+      "layout": "List of orders with right-aligned status chips (In asteptare / Finalizat). A sticky bottom CTA 'Adauga Comanda' pinned outside scroll view. The order creation flow uses a full-screen sheet with progressive disclosure: Select Client -> Add Products (using mono-font steppers for 3L/5L quantities) -> Auto-calculated total -> Submit."
+    },
+    {
+      "name": "Products",
+      "purpose": "View detergent catalog, prices, and adjust stock directly.",
+      "states": {
+        "loading": "Product row skeletons.",
+        "empty": "No products found.",
+        "error": "Error block."
+      },
+      "layout": "Sticky top row of category chips (Ocean, Floral, Lavanda). Flat list of products with un-rounded squarish images set in borderStrong containers. Each row displays sizes and prices in a mono-font table format, plus an inline 'Ajusteaza Stoc' mechanical button."
+    }
+  ],
+  "images": {
+    "login_hero": {
+      "url": "https://images.pexels.com/photos/17483874/pexels-photo-17483874.png",
+      "alt": "Abstract neural network and nodes representing Node Intelligence"
+    },
+    "warehouse_empty": {
+      "url": "https://images.pexels.com/photos/4487383/pexels-photo-4487383.jpeg",
+      "alt": "Empty warehouse shelves for empty states"
+    },
+    "product_bottles_1": {
+      "url": "https://images.pexels.com/photos/5217887/pexels-photo-5217887.jpeg",
+      "alt": "Detergent bottles lined up"
+    },
+    "product_bottles_2": {
+      "url": "https://images.pexels.com/photos/5217889/pexels-photo-5217889.jpeg",
+      "alt": "Assorted colorful cleaning product bottles"
+    }
+  },
+  "haptics": {
+    "primary_button_press": "impactLight",
+    "tab_change": "selection",
+    "stock_stepper": "impactLight",
+    "status_toggle": "impactMedium",
+    "error_state": "notificationError",
+    "success_state": "notificationSuccess"
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Brutalist Mobile LIGHT personality: NO border radius anywhere (radius=0), 1pt maximum solid borders for structure, hard alignment, and zero shadows or blur/glassmorphism.",
+    "BANNED COLORS: NO blue, navy, purple, indigo, violet, orange, or terracotta. Use the defined grayscale palette with strict Error (Red) and Warning (Yellow) statuses.",
+    "Typography MUST enforce the font weight cap: 500 max. Do not use 600, 700, Bold, or ExtraBold anywhere. Let font size and mono vs sans carry the visual hierarchy.",
+    "For the Orders screen, implement a sticky primary CTA ('Adauga Comanda') anchored to the bottom using a safe-area view, with the list scrolling behind it.",
+    "Since product images are squarish photos with backgrounds, render them inside strict square containers with a borderStrong outline to fit the brutalist poster aesthetic, avoiding the 'floating image' problem.",
+    "Entities like 'Mod Shop SRL' must use initials fallback ('MS') in a strict squared block with borderStrong, as real PNG logos were not sourced.",
+    "Data fields such as RON prices, sizes (3L/5L), and stock quantities MUST use the 'textFontFamily' (IBM Plex Mono) to ensure tabular readability.",
+    "Implement the haptics mapped in the JSON for steppers, tab changes, and primary actions."
+  ]
+}
