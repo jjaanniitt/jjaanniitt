@@ -32,13 +32,24 @@ export default function ComandaNoua() {
   const [address, setAddress] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [scanner, setScanner] = useState(false);
+  const [scanTarget, setScanTarget] = useState<any | null>(null);
+  const [scanQty, setScanQty] = useState("1");
 
   const onScanned = (code: string) => {
     setScanner(false);
     const p = (productsQ.data ?? []).find((x) => x.barcode && x.barcode === code);
     if (!p) { toast("Cod necunoscut. Aloca-l unui produs in Produse.", "error"); return; }
-    setQty((q) => ({ ...q, [p.id]: (q[p.id] || 0) + 1 }));
-    toast(`+1 ${p.variant} ${p.size}`, "success");
+    setScanTarget(p);
+    setScanQty("1");
+  };
+
+  const confirmScanQty = () => {
+    const add = parseInt(scanQty || "0", 10);
+    if (scanTarget && add > 0) {
+      setQty((q) => ({ ...q, [scanTarget.id]: (q[scanTarget.id] || 0) + add }));
+      toast(`+${add} ${scanTarget.variant} ${scanTarget.size}`, "success");
+    }
+    setScanTarget(null);
   };
 
   const collabsQ = useQuery({ queryKey: ["collaborators"], queryFn: () => api<any[]>("/collaborators") });
@@ -243,6 +254,27 @@ export default function ComandaNoua() {
       </Modal>
 
       <BarcodeScanner visible={scanner} onClose={() => setScanner(false)} onScanned={onScanned} />
+
+      <Modal visible={!!scanTarget} transparent animationType="fade" onRequestClose={() => setScanTarget(null)}>
+        <View style={s.backdrop}>
+          <KeyboardAwareScrollView contentContainerStyle={s.sheetScroll} keyboardShouldPersistTaps="handled" bottomOffset={20}>
+            <View style={s.sheet}>
+              <View style={s.sheetHead}>
+                <Text style={s.sheetTitle}>CANTITATE</Text>
+                <Pressable onPress={() => setScanTarget(null)} testID="close-scan-qty"><X size={20} color={colors.onSurface} /></Pressable>
+              </View>
+              <Text style={s.scanProd}>{scanTarget?.variant} {scanTarget?.size}</Text>
+              <View style={s.scanQtyRow}>
+                <Stepper value={parseInt(scanQty || "0", 10) || 0} onChange={(v) => setScanQty(String(v))} testID="scan-qty-stepper" />
+                <View style={{ flex: 1 }}>
+                  <Field label="Bucati" value={scanQty} onChangeText={(v) => setScanQty(v.replace(/[^0-9]/g, ""))} keyboardType="number-pad" testID="scan-qty-input" />
+                </View>
+              </View>
+              <Btn title="Adauga in comanda" onPress={confirmScanQty} disabled={!parseInt(scanQty || "0", 10)} testID="confirm-scan-qty" />
+            </View>
+          </KeyboardAwareScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -277,4 +309,6 @@ const useStyles = makeStyles((c) => ({
   sheet: { backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.borderStrong, padding: 20, gap: 16 },
   sheetHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sheetTitle: { fontFamily: fonts.monoMedium, fontSize: 13, letterSpacing: 1, color: c.onSurface },
+  scanProd: { fontFamily: fonts.displayMedium, fontSize: 18, color: c.onSurface },
+  scanQtyRow: { flexDirection: "row", alignItems: "flex-end", gap: 12 },
 }));
