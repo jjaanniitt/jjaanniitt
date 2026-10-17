@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "frontend",
+    "name": "Node Gest",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,7 +14,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#0A0B2E"
       },
       "package": "com.emergent.comenzistoc.dqckyf"
     },
@@ -29,9 +29,9 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-image.png",
-          "imageWidth": 200,
+          "imageWidth": 260,
           "resizeMode": "contain",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#0A0B2E"
         }
       ],
       "expo-font",
