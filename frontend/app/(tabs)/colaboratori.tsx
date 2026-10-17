@@ -32,7 +32,7 @@ export default function Colaboratori() {
       setModal(false); setName("");
       toast("Colaborator adaugat", "success");
     },
-    onError: (e: any) => toast(e.message || "Eroare", "error"),
+    onError: (e: any) => { toast(e.message || "Eroare", "error"); if (e?.status === 403) router.push("/abonament"); },
   });
 
   return (

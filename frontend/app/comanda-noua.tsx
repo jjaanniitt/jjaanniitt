@@ -2,10 +2,11 @@ import { useMemo, useState, useEffect } from "react";
 import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { X, Check, UserPlus } from "phosphor-react-native";
+import { X, Check, UserPlus, Barcode } from "phosphor-react-native";
 import { Btn, Field, Stepper } from "@/src/components/ui";
+import { BarcodeScanner } from "@/src/components/barcode-scanner";
 import { useToast } from "@/src/components/toast";
 import { api } from "@/src/api/client";
 import { formatRON } from "@/src/lib/format";
@@ -17,6 +18,8 @@ export default function ComandaNoua() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const toast = useToast();
+  const { editId } = useLocalSearchParams<{ editId?: string }>();
+  const isEdit = !!editId;
 
   const [collabId, setCollabId] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -25,13 +28,40 @@ export default function ComandaNoua() {
   const [clientModal, setClientModal] = useState(false);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  const [prefilled, setPrefilled] = useState(false);
+  const [address, setAddress] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [scanner, setScanner] = useState(false);
+
+  const onScanned = (code: string) => {
+    setScanner(false);
+    const p = (productsQ.data ?? []).find((x) => x.barcode && x.barcode === code);
+    if (!p) { toast("Cod necunoscut. Aloca-l unui produs in Produse.", "error"); return; }
+    setQty((q) => ({ ...q, [p.id]: (q[p.id] || 0) + 1 }));
+    toast(`+1 ${p.variant} ${p.size}`, "success");
+  };
 
   const collabsQ = useQuery({ queryKey: ["collaborators"], queryFn: () => api<any[]>("/collaborators") });
   const productsQ = useQuery({ queryKey: ["products"], queryFn: () => api<any[]>("/products") });
+  const orderQ = useQuery({ queryKey: ["order", editId], queryFn: () => api<any>(`/orders/${editId}`), enabled: isEdit });
 
   useEffect(() => {
-    if (!collabId && collabsQ.data && collabsQ.data.length > 0) setCollabId(collabsQ.data[0].id);
-  }, [collabsQ.data, collabId]);
+    if (isEdit && orderQ.data && !prefilled) {
+      setCollabId(orderQ.data.collaborator_id);
+      setClientId(orderQ.data.client_id);
+      setStatus(orderQ.data.status === "Finalizat" ? "Finalizat" : "In asteptare");
+      setAddress(orderQ.data.address || "");
+      if (orderQ.data.date) setDate(String(orderQ.data.date).slice(0, 10));
+      const q: Record<string, number> = {};
+      orderQ.data.lines.forEach((l: any) => { q[l.product_id] = l.qty; });
+      setQty(q);
+      setPrefilled(true);
+    }
+  }, [isEdit, orderQ.data, prefilled]);
+
+  useEffect(() => {
+    if (!isEdit && !collabId && collabsQ.data && collabsQ.data.length > 0) setCollabId(collabsQ.data[0].id);
+  }, [collabsQ.data, collabId, isEdit]);
 
   const collabDetailQ = useQuery({
     queryKey: ["collaborator", collabId],
@@ -68,18 +98,22 @@ export default function ComandaNoua() {
       const lines = (productsQ.data ?? [])
         .filter((p) => (qty[p.id] || 0) > 0)
         .map((p) => ({ product_id: p.id, qty: qty[p.id] }));
-      return api("/orders", { method: "POST", body: { collaborator_id: collabId, client_id: clientId, lines, status } });
+      if (isEdit) {
+        return api(`/orders/${editId}`, { method: "PUT", body: { client_id: clientId, lines, status, date } });
+      }
+      return api("/orders", { method: "POST", body: { collaborator_id: collabId, client_id: clientId, lines, status, address, date } });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["orders"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["collaborators"] });
       qc.invalidateQueries({ queryKey: ["collaborator", collabId] });
+      if (editId) qc.invalidateQueries({ queryKey: ["order", editId] });
       if (clientId) qc.invalidateQueries({ queryKey: ["client", clientId] });
-      toast("Comanda inregistrata", "success");
+      toast(isEdit ? "Comanda actualizata" : "Comanda inregistrata", "success");
       router.back();
     },
-    onError: (e: any) => toast(e.message || "Eroare", "error"),
+    onError: (e: any) => { toast(e.message || "Eroare", "error"); if (e?.status === 403) router.push("/abonament"); },
   });
 
   const canSubmit = !!collabId && !!clientId && itemCount > 0 && !submit.isPending;
@@ -87,7 +121,7 @@ export default function ComandaNoua() {
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>
       <View style={s.head}>
-        <Text style={s.headTitle}>COMANDA NOUA</Text>
+        <Text style={s.headTitle}>{isEdit ? "EDITEAZA COMANDA" : "COMANDA NOUA"}</Text>
         <Pressable onPress={() => router.back()} testID="close-order"><X size={22} color={colors.onSurface} /></Pressable>
       </View>
 
@@ -98,7 +132,13 @@ export default function ComandaNoua() {
           {(collabsQ.data ?? []).map((c) => {
             const active = c.id === collabId;
             return (
-              <Pressable key={c.id} onPress={() => { setCollabId(c.id); setClientId(null); }} style={[s.pick, active && s.pickActive]} testID={`pick-collab-${c.id}`}>
+              <Pressable
+                key={c.id}
+                onPress={() => { if (!isEdit) { setCollabId(c.id); setClientId(null); } }}
+                style={[s.pick, active && s.pickActive, isEdit && !active && s.pickDisabled]}
+                disabled={isEdit}
+                testID={`pick-collab-${c.id}`}
+              >
                 <Text style={[s.pickText, active && s.pickTextActive]}>{c.name}</Text>
               </Pressable>
             );
@@ -128,8 +168,18 @@ export default function ComandaNoua() {
           </View>
         )}
 
+        {/* Date & address */}
+        <Field label="Data comenzii" value={date} onChangeText={setDate} placeholder="AAAA-LL-ZZ" testID="order-date-input" />
+        <Field label="Adresa (optional)" value={address} onChangeText={setAddress} placeholder="Strada, oras..." testID="order-address-input" />
+
         {/* Products */}
-        <Text style={s.section}>PRODUSE</Text>
+        <View style={s.sectionRow}>
+          <Text style={s.section}>PRODUSE</Text>
+          <Pressable onPress={() => setScanner(true)} style={s.addClient} testID="open-scan-order">
+            <Barcode size={14} color={colors.onSurface} />
+            <Text style={s.addClientText}>SCANEAZA</Text>
+          </Pressable>
+        </View>
         {groups.map(([cat, items]) => (
           <View key={cat} style={s.group}>
             <Text style={s.groupTitle}>{cat.toUpperCase()}</Text>
@@ -166,7 +216,7 @@ export default function ComandaNoua() {
           <Text style={s.totalValue} testID="order-total">{formatRON(total)}</Text>
         </View>
         <Btn
-          title="Inregistreaza comanda"
+          title={isEdit ? "Salveaza modificarile" : "Inregistreaza comanda"}
           onPress={() => submit.mutate()}
           disabled={!canSubmit}
           loading={submit.isPending}
@@ -191,6 +241,8 @@ export default function ComandaNoua() {
           </KeyboardAwareScrollView>
         </View>
       </Modal>
+
+      <BarcodeScanner visible={scanner} onClose={() => setScanner(false)} onScanned={onScanned} />
     </View>
   );
 }
@@ -208,6 +260,7 @@ const useStyles = makeStyles((c) => ({
   pickRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   pick: { borderWidth: 1, borderColor: c.borderStrong, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: c.surface },
   pickActive: { backgroundColor: c.brandPrimary },
+  pickDisabled: { opacity: 0.4 },
   pickText: { fontFamily: fonts.monoMedium, fontSize: 12, color: c.onSurface },
   pickTextActive: { color: c.onBrandPrimary },
   group: { borderWidth: 1, borderColor: c.border, marginTop: 4 },

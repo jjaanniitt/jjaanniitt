@@ -1,9 +1,9 @@
-import { useCallback, useState } from "react";
-import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { FlatList, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
-import { Plus, ClipboardText } from "phosphor-react-native";
+import { Plus, ClipboardText, MagnifyingGlass } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, EmptyState, StatusBadge } from "@/src/components/ui";
 import { api } from "@/src/api/client";
@@ -17,6 +17,7 @@ export default function Comenzi() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("Toate");
+  const [search, setSearch] = useState("");
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["orders", filter],
@@ -24,9 +25,28 @@ export default function Comenzi() {
   });
   useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
 
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return data ?? [];
+    return (data ?? []).filter(
+      (o) => o.document_no.toLowerCase().includes(q) || o.client_name.toLowerCase().includes(q) || o.collaborator_name.toLowerCase().includes(q),
+    );
+  }, [data, search]);
+
   return (
     <View style={s.root}>
       <AppHeader title="Comenzi" subtitle="Comenzile tuturor partenerilor" />
+      <View style={s.searchWrap}>
+        <MagnifyingGlass size={16} color={colors.muted} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Cauta dupa document sau client"
+          placeholderTextColor={colors.muted}
+          style={s.searchInput}
+          testID="orders-search-input"
+        />
+      </View>
       <View style={s.chipsWrap}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipsContent}>
           {FILTERS.map((f) => {
@@ -46,7 +66,7 @@ export default function Comenzi() {
       </View>
 
       <FlatList
-        data={data ?? []}
+        data={filtered}
         keyExtractor={(o) => o.id}
         contentContainerStyle={s.listContent}
         renderItem={({ item }) => (
@@ -91,6 +111,8 @@ export default function Comenzi() {
 
 const useStyles = makeStyles((c) => ({
   root: { flex: 1, backgroundColor: c.surface },
+  searchWrap: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surface },
+  searchInput: { flex: 1, paddingVertical: 12, fontFamily: fonts.mono, fontSize: 14, color: c.onSurface },
   chipsWrap: { height: 56, borderBottomWidth: 1, borderBottomColor: c.border, justifyContent: "center" },
   chipsContent: { paddingHorizontal: 16, gap: 8, alignItems: "center" },
   chip: { height: 36, paddingHorizontal: 14, borderWidth: 1, borderColor: c.borderStrong, alignItems: "center", justifyContent: "center", backgroundColor: c.surface, flexShrink: 0 },

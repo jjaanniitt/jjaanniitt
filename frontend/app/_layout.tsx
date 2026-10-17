@@ -40,6 +40,7 @@ export default function RootLayout() {
                 <ToastProvider>
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }}>
                     <Stack.Screen name="comanda-noua" options={{ presentation: "modal" }} />
+                    <Stack.Screen name="consignatie" options={{ presentation: "modal" }} />
                   </Stack>
                 </ToastProvider>
               </AuthProvider>

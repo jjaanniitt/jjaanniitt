@@ -1,37 +1,33 @@
 # PRD — Node Gestiune (Logistica Detergenti)
 
 ## Original problem statement
-Aplicatie mobila de logistica pentru un distribuitor de detergenti (consignatie). Trebuie sa: scoata fise de partener, introduca comenzi, incarce stocurile colaboratorilor, tina fise de colaboratori cu comenzile lor, fise de clienti (persoane sub colaborator), si evidenta clara a clientilor incasati vs in asteptare. Primul colaborator: MOD SHOP. Branding: Powered by Node Intelligence (nodeintelligence.ro).
+Aplicatie mobila de logistica (consignatie) pentru distribuitor de detergenti. Fise partener/client, comenzi, stocuri colaboratori, evidenta incasari. Branding Node Intelligence (nodeintelligence.ro).
 
-## User choices
-- Colaborator = magazin cu stoc in consignatie; colaboratorii au si clienti finali (persoane) cu fise separate.
-- Stocul scade la CREAREA comenzii, indiferent de status.
-- Login cu parola simpla (un singur operator): detergentzilnic@gmail.com / Zilnic2026!
-- Export PDF pentru fise partener/client.
-- Date pre-populate (produse din Excel + MOD SHOP) la seed-ul contului.
+## User choices (cumulate)
+- Colaborator = magazin cu stoc in consignatie; are clienti finali cu fise separate.
+- Stocul scade la crearea comenzii; intrarile se fac prin foi de consignatie (PV).
+- Login parola simpla: detergentzilnic@gmail.com / Zilnic2026!
+- Export PDF fise. Pre-populare produse din Excel.
+- Partenerii incep de la 0; MOD SHOP resetat la 0.
+- Abonamente Free/Basic(50)/Avansat(100)/Pro(200) cu limite stricte; activare manuala acum (plata reala la publicare).
+- Poza profil in Object Storage. Scanare cod de bare la comenzi si procese verbale.
 
 ## Architecture
-- Backend: FastAPI + MongoDB (motor), JWT (HTTPBearer, bcrypt), rute sub /api, id-uri uuid string.
-  - Colectii: users, products, collaborators (stoc ca dict pe document), clients, orders, counters, meta.
-  - Seed la startup: user admin, 18 produse, colaborator MOD SHOP cu stoc initial de consignatie.
-- Frontend: Expo Router, react-query, token in secure storage. Design brutalist (SpaceGrotesk + IBM Plex Mono, radius 0, borduri 1pt).
-  - Taburi: Panou / Comenzi / Produse / Parteneri.
+- Backend FastAPI + Mongo (motor), JWT auth, uuid ids, rute /api.
+  - Colectii: users, products, collaborators, clients, orders, consignments, counters, meta.
+  - Object Storage (Emergent) pentru avatar. Plans config + enforcement.
+- Frontend Expo Router + react-query. Design brutalist (SpaceGrotesk + IBM Plex Mono, radius 0).
+  - Taburi: Panou / Comenzi / Produse / Parteneri. Cont + Abonament accesibile din Panou.
 
-## Implemented (2026-06)
-- [x] Autentificare JWT + ecran login cu branding Node Intelligence
-- [x] Catalog 18 produse (Ocean/Floral/Lavanda/Vase/Universal/Sapun/Odorizant) cu preturi RON
-- [x] Dashboard KPI: de incasat, incasat, comenzi, produse vandute, stoc total, parteneri + alerta stoc negativ
-- [x] Comenzi: lista + filtre status, creare comanda (colaborator -> client -> steppere produse -> total auto -> status), detaliu comanda cu toggle status si stergere (restaureaza stoc)
-- [x] Colaboratori: lista, adaugare, fisa colaborator cu taburi Stoc/Clienti, ajustare stoc, adaugare client
-- [x] Clienti: fisa client cu comenzi + incasat/de incasat
-- [x] Export PDF fisa partener + fisa client (expo-print/sharing)
-- [x] Stoc scade la creare comanda, poate deveni negativ (semnalat)
+## Implemented
+- [x] (iter1) Auth, catalog 18 produse, dashboard KPI, comenzi + status + sum, parteneri, clienti, fise, PDF, stoc scade la comanda
+- [x] (iter2) Editare comanda, cautare comenzi/clienti, prag stoc scazut, rapoarte lunare, adaugare produse
+- [x] (iter3) Foaie de consignatie (PV, +stoc), tab Intrari + coloane Intrat/Iesit, dashboard pe perioada (azi/luna/tot) + vanzari pe categorii + totaluri pe produs (buc/litri/valoare), abonamente 4 planuri cu limite stricte + activare manuala, ecran Cont (poza profil Object Storage, nume, plan, usage, deconectare), scanare cod de bare (expo-camera) la comenzi/consignatie + alocare barcode pe produs
 
-## Backlog (P1/P2)
-- P1: Rapoarte pe perioada (lunar) si grafic vanzari
-- P1: Editare comanda existenta
-- P2: Cautare/filtrare in liste; multi-colaborator cu import stoc bulk
-- P2: Istoric miscari de stoc
+## Note importante
+- Scanarea cod de bare + poza profil din camera functioneaza pe build real pe telefon (nu in web preview); in Expo Go pe telefon real camera merge.
+- Plata reala abonament se leaga la publicare (RevenueCat). Acum activare manuala din ecranul Abonament.
 
-## Next tasks
-- La cerere: editare comanda, rapoarte lunare, cautare.
+## Backlog
+- P1: Plata reala in-app (RevenueCat) la publicare
+- P2: Editare/stergere intrari consignatie; grafice avansate; multi-user

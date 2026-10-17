@@ -3,7 +3,7 @@ import { Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Trash, X } from "phosphor-react-native";
+import { Trash, X, PencilSimple } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, StatusBadge } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
@@ -81,6 +81,13 @@ export default function ComandaDetail() {
         </View>
 
         <Text style={s.section}>ACTIUNI</Text>
+        <Btn
+          title="Editeaza comanda"
+          variant="secondary"
+          onPress={() => router.push(`/comanda-noua?editId=${id}`)}
+          icon={<PencilSimple size={18} color={colors.onBrandSecondary} weight="bold" />}
+          testID="edit-order-button"
+        />
         <Btn
           title={isFinal ? "Marcheaza ca in asteptare" : "Marcheaza ca incasat"}
           variant={isFinal ? "outline" : "primary"}

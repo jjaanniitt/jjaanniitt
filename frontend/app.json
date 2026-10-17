@@ -39,7 +39,15 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-status-bar",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-camera",
+        { "cameraPermission": "Scaneaza codul de bare al produselor" }
+      ],
+      [
+        "expo-image-picker",
+        { "photosPermission": "Alege o poza de profil din galerie" }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

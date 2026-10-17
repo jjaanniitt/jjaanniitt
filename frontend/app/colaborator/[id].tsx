@@ -1,15 +1,15 @@
-import { useCallback, useState } from "react";
-import { FlatList, Modal, Pressable, Text, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { FlatList, Modal, Pressable, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { X, FilePdf, CaretRight, UserPlus, PencilSimple } from "phosphor-react-native";
+import { X, FilePdf, CaretRight, UserPlus, PencilSimple, MagnifyingGlass, Warning, Plus } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Field, StatusBadge } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { api } from "@/src/api/client";
-import { formatRON } from "@/src/lib/format";
+import { formatRON, formatDate } from "@/src/lib/format";
 import { exportCollaboratorPdf } from "@/src/lib/pdf";
 import { makeStyles, useTheme, fonts } from "@/src/theme";
 
@@ -20,15 +20,25 @@ export default function ColaboratorSheet() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const toast = useToast();
-  const [tab, setTab] = useState<"Stoc" | "Clienti">("Stoc");
+  const [tab, setTab] = useState<"Stoc" | "Intrari" | "Clienti">("Stoc");
 
   const [stockModal, setStockModal] = useState<{ pid: string; label: string; qty: string } | null>(null);
   const [clientModal, setClientModal] = useState(false);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
 
   const { data, refetch, isLoading } = useQuery({ queryKey: ["collaborator", id], queryFn: () => api<any>(`/collaborators/${id}`), enabled: !!id });
+  const settingsQ = useQuery({ queryKey: ["settings"], queryFn: () => api<any>("/settings") });
+  const threshold = settingsQ.data?.low_stock_threshold ?? 5;
   useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
+
+  const filteredClients = useMemo(() => {
+    const q = clientSearch.trim().toLowerCase();
+    const list = data?.clients ?? [];
+    if (!q) return list;
+    return list.filter((c: any) => c.name.toLowerCase().includes(q) || (c.phone || "").includes(q));
+  }, [data, clientSearch]);
 
   const saveStock = useMutation({
     mutationFn: () => api(`/collaborators/${id}/stock`, { method: "PUT", body: { product_id: stockModal!.pid, quantity: parseInt(stockModal!.qty || "0", 10) } }),
@@ -63,9 +73,14 @@ export default function ColaboratorSheet() {
         subtitle={data ? `${data.total_stock} buc · ${formatRON(data.pending)} de incasat` : undefined}
         onBack={() => router.back()}
         right={
-          <Pressable onPress={exportPdf} style={s.pdfBtn} testID="export-collab-pdf" disabled={!data}>
-            <FilePdf size={20} color={colors.onSurface} />
-          </Pressable>
+          <>
+            <Pressable onPress={() => router.push(`/consignatie?collabId=${id}`)} style={s.pdfBtn} testID="add-consignment" disabled={!data}>
+              <Plus size={20} color={colors.onSurface} weight="bold" />
+            </Pressable>
+            <Pressable onPress={exportPdf} style={s.pdfBtn} testID="export-collab-pdf" disabled={!data}>
+              <FilePdf size={20} color={colors.onSurface} />
+            </Pressable>
+          </>
         }
       />
 
@@ -80,7 +95,7 @@ export default function ColaboratorSheet() {
 
       {/* Tabs */}
       <View style={s.tabRow}>
-        {(["Stoc", "Clienti"] as const).map((t) => (
+        {(["Stoc", "Intrari", "Clienti"] as const).map((t) => (
           <Pressable key={t} onPress={() => setTab(t)} style={[s.tab, tab === t && s.tabActive]} testID={`tab-${t}`}>
             <Text style={[s.tabText, tab === t && s.tabTextActive]}>{t.toUpperCase()}</Text>
           </Pressable>
@@ -96,8 +111,11 @@ export default function ColaboratorSheet() {
             <View style={s.stockRow} testID={`stock-${item.id}`}>
               <View style={{ flex: 1 }}>
                 <Text style={s.stockName}>{item.label}</Text>
-                <Text style={s.stockPrice}>{item.price} RON</Text>
+                <Text style={s.stockPrice}>intrat {item.intrat} · iesit {item.iesit}</Text>
               </View>
+              {item.quantity >= 0 && item.quantity <= threshold ? (
+                <Warning size={16} color={colors.onWarning} weight="fill" testID={`low-${item.id}`} />
+              ) : null}
               <Text style={[s.stockQty, item.quantity < 0 && s.neg]}>{item.quantity}</Text>
               <Pressable style={s.adjBtn} onPress={() => setStockModal({ pid: item.id, label: item.label, qty: String(item.quantity) })} testID={`adjust-${item.id}`}>
                 <PencilSimple size={16} color={colors.onSurface} />
@@ -105,23 +123,53 @@ export default function ColaboratorSheet() {
             </View>
           )}
         />
-      ) : (
+      ) : tab === "Intrari" ? (
         <FlatList
-          data={data?.clients ?? []}
-          keyExtractor={(c) => c.id}
-          contentContainerStyle={[s.listContent, { paddingBottom: 110 }]}
+          data={data?.consignments ?? []}
+          keyExtractor={(cn) => cn.id}
+          contentContainerStyle={s.listContent}
           renderItem={({ item }) => (
-            <Pressable style={s.clientRow} onPress={() => router.push(`/client/${item.id}`)} testID={`client-row-${item.id}`}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.clientName}>{item.name}</Text>
-                <Text style={s.clientMeta}>{item.orders_count} comenzi · {item.phone || "fara telefon"}</Text>
+            <View style={s.consRow} testID={`cons-${item.id}`}>
+              <View style={s.consHead}>
+                <Text style={s.consPv}>PV {item.pv_number}</Text>
+                <Text style={s.consDate}>{formatDate(item.date)}</Text>
               </View>
-              {item.pending > 0 ? <StatusBadge status="In asteptare" /> : null}
-              <CaretRight size={16} color={colors.muted} />
-            </Pressable>
+              <Text style={s.consItems} numberOfLines={3}>{item.items.map((it: any) => `${it.label} x${it.qty}`).join(", ")}</Text>
+              <Text style={s.consTotal}>{item.total_items} buc intrate</Text>
+            </View>
           )}
-          ListEmptyComponent={!isLoading ? <Text style={s.empty}>Niciun client inca.</Text> : null}
+          ListEmptyComponent={!isLoading ? <Text style={s.empty}>Nicio intrare. Apasa + sus pentru foaie de consignatie.</Text> : null}
         />
+      ) : (
+        <>
+          <View style={s.searchWrap}>
+            <MagnifyingGlass size={16} color={colors.muted} />
+            <TextInput
+              value={clientSearch}
+              onChangeText={setClientSearch}
+              placeholder="Cauta client dupa nume sau telefon"
+              placeholderTextColor={colors.muted}
+              style={s.searchInput}
+              testID="client-search-input"
+            />
+          </View>
+          <FlatList
+            data={filteredClients}
+            keyExtractor={(c) => c.id}
+            contentContainerStyle={[s.listContent, { paddingBottom: 110 }]}
+            renderItem={({ item }) => (
+              <Pressable style={s.clientRow} onPress={() => router.push(`/client/${item.id}`)} testID={`client-row-${item.id}`}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.clientName}>{item.name}</Text>
+                  <Text style={s.clientMeta}>{item.orders_count} comenzi · {item.phone || "fara telefon"}</Text>
+                </View>
+                {item.pending > 0 ? <StatusBadge status="In asteptare" /> : null}
+                <CaretRight size={16} color={colors.muted} />
+              </Pressable>
+            )}
+            ListEmptyComponent={!isLoading ? <Text style={s.empty}>Niciun client inca.</Text> : null}
+          />
+        </>
       )}
 
       {tab === "Clienti" ? (
@@ -191,9 +239,17 @@ const useStyles = makeStyles((c) => ({
   tabText: { fontFamily: fonts.monoMedium, fontSize: 12, letterSpacing: 1, color: c.onSurface },
   tabTextActive: { color: c.onSurfaceInverse },
   listContent: { padding: 16, paddingBottom: 32, gap: 10 },
+  searchWrap: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: c.borderStrong, backgroundColor: c.surface },
+  searchInput: { flex: 1, paddingVertical: 12, fontFamily: fonts.mono, fontSize: 14, color: c.onSurface },
   stockRow: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12, paddingVertical: 10 },
   stockName: { fontFamily: fonts.mono, fontSize: 13, color: c.onSurface },
   stockPrice: { fontFamily: fonts.mono, fontSize: 11, color: c.muted, marginTop: 2 },
+  consRow: { borderWidth: 1, borderColor: c.borderStrong, padding: 14, gap: 6, backgroundColor: c.surface },
+  consHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  consPv: { fontFamily: fonts.monoMedium, fontSize: 14, color: c.onSurface },
+  consDate: { fontFamily: fonts.mono, fontSize: 11, color: c.muted },
+  consItems: { fontFamily: fonts.mono, fontSize: 12, color: c.onSurfaceSecondary },
+  consTotal: { fontFamily: fonts.monoMedium, fontSize: 12, color: c.positive },
   stockQty: { fontFamily: fonts.monoMedium, fontSize: 18, color: c.onSurface, minWidth: 40, textAlign: "right" },
   adjBtn: { width: 36, height: 36, borderWidth: 1, borderColor: c.borderStrong, alignItems: "center", justifyContent: "center" },
   clientRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: c.borderStrong, padding: 14, backgroundColor: c.surface },
