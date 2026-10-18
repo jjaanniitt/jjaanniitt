@@ -1,0 +1,49 @@
+{
+  "summary": "Phase 1 NodeOne multi-tenant rebrand tested end-to-end. New file /app/backend/tests/test_iter6_multitenant.py has 12 tests, all PASS (login/me/plan, parent register clones 18-product catalog + fresh central_stock, parent register duplicate 409, invite+partner register full flow, reuse invite -> 400, invalid invite -> 400, partner data isolation: /collaborators count=1, /central-stock 403, POST /products 403, POST /collaborators 403, POST /orders cross-partner 403, second parent org isolation of collabs+products+orders, central-stock flow: 18 rows + reception + consignment deducts central/adds partner + insufficient->400, regression products CRUD, clients CRUD + dup 409, orders create + 2x partial payments -> Partial then Finalizat + delete restores stock, dashboard + monthly scoped). Frontend (390x844 mobile viewport): Login screen renders dark NodeOne hero + both go-register-parent / go-register-partner buttons. /register has tab-parent / tab-partner segmented control + reg-org-input / reg-invite-input / reg-email-input / reg-password-input / register-submit. Created throwaway parent test_ui_*@test.ro which successfully landed on fresh (tabs) dashboard with all 4 tabs (Panou, Comenzi, Produse, Parteneri) and zeroed KPIs. Real parent login works, 'open-account' header icon opens Cont screen showing 'FIRMA MAMA' role badge + 'open-depozit' row. Depozit Central shows 2 KPIs (0 IN DEPOZIT / 262 LA PARTENERI), opens RECEPTIE MARFA modal with rec-stepper (18 per-product rows) + submit-reception. Colaboratori list has add-collab-button (parent only). MOD SHOP SRL row -> collaborator detail shows gen-invite (Key) + add-consignment (+) + export-collab-pdf. Tapping gen-invite popped the 'COD INVITATIE' modal with invite-code='2METXEVVZRIT', close-invite, invite-done. Produse tab has add-product-button for parent. No React Native red screens, no console errors beyond the expected Metro websocket warning. No deprecated expo packages (expo-av/expo-barcode-scanner/expo-background-fetch) detected. Cleanup verified via Mongo: 0 leftover @test.ro users, 0 TEST_ orgs, 0 TEST_PV consignments, 0 TEST_ clients/orders/products; parent org restored to central_stock total=0, MOD SHOP total_stock=262 (= pre-test value), 18 products, 2 collaborators (MOD SHOP SRL + DETERGENT ZILNIC, both pre-existing before this iteration).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/collaborators/{id}/consignments", "issue": "4 legacy tests in test_iter3.py / test_iter5.py / test_iter5_date.py assume the pre-Phase-1 behavior where consignments did not need central stock. They now fail with 400 'Stoc central insuficient' because Phase 1 correctly requires reception first. The new iter6 tests cover the new contract. These legacy tests should be updated to do a reception call before the consignment (one-line add). Not a product bug."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_multitenant.py",
+    "/app/test_reports/pytest/iter6_results.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional, non-blocking) Update test_iter3.py::TestConsignments::test_create_consignment_increments_stock_and_records_entry, test_iter5.py::test_consignment_increments_stock, test_iter5_date.py::test_consignment_with_explicit_date_persists_and_increments_stock, test_iter5_date.py::test_consignment_without_date_defaults_to_now to call POST /api/central-stock/reception for the required qty BEFORE calling POST /api/collaborators/{id}/consignments. This brings them in line with the Phase 1 central-stock-first contract. Backend code itself is correct and iter6 tests validate the new behavior.",
+    "(Nit) Review request text mentions 'Account tab (cont)' — in the actual UI Cont is NOT a bottom tab, it is reached via the top-right 'open-account' UserCircle icon on the dashboard header. UI is fine; just a wording difference. No change needed unless main agent intended a dedicated Cont tab."
+  ],
+  "critical_code_review_comments": [
+    "server.py line 391 register_parent correctly clones all 18 CATALOG products with new UUIDs scoped to the new org, inserts a fresh central_stock dict, and returns a working JWT; isolation verified in iter6.",
+    "server.py line 422 /auth/invites requires parent via dependency AND re-validates the collaborator belongs to the org via collab_query — belt-and-suspenders, good.",
+    "server.py line 444 register_partner uses find_one_and_update atomic swap with used_at:None condition to guarantee single-use (prevents race condition on reuse) — correct implementation.",
+    "server.py line 739 create_consignment correctly ATOMICALLY reads+decrements central and increments partner stock in one request; however deduction and partner update happen in sequential update_one calls without a transaction — if the second update fails after the first succeeds the central would be debited without crediting the partner. Low risk on single mongo instance but should be noted. Consider wrapping in a session.start_transaction() when mongo is replica set.",
+    "server.py line 796 central_reception has no row-level error isolation if one qty==0 the item is skipped but if the whole list is empty you get 400 ('Nu ai adaugate produse'). Good.",
+    "server.py line 791 total_consigned aggregates across ALL partner stock values, which includes negative stock (over-sold). On an org with -22 Odorizant this makes total_consigned smaller than reality. Minor cosmetic — current dashboard shows '262 buc' which already reflects the net. Not a bug.",
+    "server.py has grown to 1203 lines — same recommendation from iter4/iter5: split into routers/ sub-modules (auth, products, collaborators, orders, dashboard).",
+    "colaborator/[id].tsx line 101/104 wire gen-invite and add-consignment on the header for parent only; partner view hides them — matches backend 403 guards. Good.",
+    "login.tsx renders Image hero with LinearGradient scrim and dark theme c.surface — looks correct, dark navy theme consistent across all screens tested.",
+    "No HTML tags, all text wrapped in <Text>, StyleSheet via makeStyles(), SafeAreaView usage consistent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter6_multitenant.py (new, 12 tests for Phase 1 multi-tenant)",
+    "/app/test_reports/iteration_6.json"
+  ],
+  "success_rate": {
+    "backend": "100% on new iter6 (12/12); 127/131 pass on full historical suite — the 4 failures are LEGACY tests that encode pre-Phase-1 assumptions (consignment without prior reception), not product bugs.",
+    "frontend": "100% — all target testIDs validated: login-email-input, login-password-input, login-submit-button, go-register-parent, go-register-partner, tab-parent, tab-partner, reg-org-input, reg-invite-input, reg-email-input, reg-password-input, register-submit, open-account, open-depozit, open-reception, rec-stepper, submit-reception, add-collab-button, collab-row-{id}, gen-invite, add-consignment, invite-code, close-invite, invite-done, add-product-button. FIRMA MAMA role badge visible, dark navy theme render verified on 390x844, invite code modal produced a valid 12-char code (2METXEVVZRIT) wired through POST /api/auth/invites."
+  },
+  "seed_data_creation": "Transient only — all throwaway data removed in test_zzzz_final_cleanup via Motor. Verified via Mongo: 0 @test.ro users remain, 0 TEST_ orgs/products/consignments/clients/orders remain. Parent org restored: central_stock total=0, MOD SHOP total_stock=262 (unchanged from pre-test), 18 products, 2 collaborators (both pre-existing). One dangling unused invite from the frontend gen-invite UI test was also hard-deleted at the end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run `cd /app && python -m pytest backend/tests/test_iter6_multitenant.py -v -n 0` for the Phase 1 suite. Full regression: `python -m pytest backend/tests/ -n 0` — expect 4 pre-existing legacy failures in test_iter3/test_iter5/test_iter5_date (consignment-without-reception); these are NOT product bugs. Frontend testIDs for Phase 1 to remember: go-register-parent, go-register-partner (login), tab-parent, tab-partner, reg-org-input, reg-invite-input, register-submit (register), open-account on dashboard header (not a bottom tab) -> Cont, open-depozit on Cont -> Depozit Central, open-reception + rec-stepper + submit-reception on Depozit, add-collab-button on Parteneri list, collab-row-<uuid> rows, gen-invite + add-consignment on collaborator header, invite-code / close-invite / invite-done in invite modal, add-product-button on Produse. Bottom tab labels are Panou/Comenzi/Produse/Parteneri — avoid clicking by text='Parteneri' because the dashboard also has a 'PARTENERI' KPI tile; use direct route goto('/colaboratori') instead. Real parent credentials: detergentzilnic@gmail.com / Zilnic2026!. Parent org name is 'Firma mama'. Second collab 'DETERGENT ZILNIC' is pre-existing from E1's Phase 1 rebuild, not test data.",
+  "rca_of_issue": "N/A — Phase 1 rebuild verified cleanly, no bugs found in backend or frontend. The only non-pass items are 4 legacy test cases that encode the old (pre-Phase-1) semantics where a consignment did not require central stock first; the new iter6 suite covers the new semantics and all 12 pass."
+}

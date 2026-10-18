@@ -4,10 +4,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { X, FilePdf, CaretRight, UserPlus, PencilSimple, MagnifyingGlass, Warning, Plus, Trash } from "phosphor-react-native";
+import { X, FilePdf, CaretRight, UserPlus, PencilSimple, MagnifyingGlass, Warning, Plus, Trash, Key } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Field, StatusBadge } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
+import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { formatRON, formatDate } from "@/src/lib/format";
 import { exportCollaboratorPdf } from "@/src/lib/pdf";
@@ -20,10 +21,12 @@ export default function ColaboratorSheet() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const toast = useToast();
+  const { role } = useAuth();
   const [tab, setTab] = useState<"Stoc" | "Intrari" | "Clienti">("Stoc");
 
   const [stockModal, setStockModal] = useState<{ pid: string; label: string; qty: string } | null>(null);
   const [delProduct, setDelProduct] = useState<{ id: string; label: string } | null>(null);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [clientModal, setClientModal] = useState(false);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
@@ -79,6 +82,12 @@ export default function ColaboratorSheet() {
     try { await exportCollaboratorPdf(data); } catch { toast("Export esuat", "error"); }
   };
 
+  const genInvite = useMutation({
+    mutationFn: () => api<any>("/auth/invites", { method: "POST", body: { collaborator_id: id } }),
+    onSuccess: (r: any) => setInviteCode(r.invite_code),
+    onError: (e: any) => toast(e.message || "Eroare", "error"),
+  });
+
   return (
     <View style={s.root}>
       <AppHeader
@@ -87,9 +96,16 @@ export default function ColaboratorSheet() {
         onBack={() => router.back()}
         right={
           <>
-            <Pressable onPress={() => router.push(`/consignatie?collabId=${id}`)} style={s.pdfBtn} testID="add-consignment" disabled={!data}>
-              <Plus size={20} color={colors.onSurface} weight="bold" />
-            </Pressable>
+            {role === "parent" ? (
+              <>
+                <Pressable onPress={() => genInvite.mutate()} style={s.pdfBtn} testID="gen-invite" disabled={!data || genInvite.isPending}>
+                  <Key size={20} color={colors.brandPrimary} weight="bold" />
+                </Pressable>
+                <Pressable onPress={() => router.push(`/consignatie?collabId=${id}`)} style={s.pdfBtn} testID="add-consignment" disabled={!data}>
+                  <Plus size={20} color={colors.onSurface} weight="bold" />
+                </Pressable>
+              </>
+            ) : null}
             <Pressable onPress={exportPdf} style={s.pdfBtn} testID="export-collab-pdf" disabled={!data}>
               <FilePdf size={20} color={colors.onSurface} />
             </Pressable>
@@ -130,12 +146,16 @@ export default function ColaboratorSheet() {
                 <Warning size={16} color={colors.onWarning} weight="fill" testID={`low-${item.id}`} />
               ) : null}
               <Text style={[s.stockQty, item.quantity < 0 && s.neg]}>{item.quantity}</Text>
-              <Pressable style={s.adjBtn} onPress={() => setStockModal({ pid: item.id, label: item.label, qty: String(item.quantity) })} testID={`adjust-${item.id}`}>
-                <PencilSimple size={16} color={colors.onSurface} />
-              </Pressable>
-              <Pressable style={s.adjBtn} onPress={() => setDelProduct({ id: item.id, label: item.label })} testID={`delete-stock-${item.id}`}>
-                <Trash size={16} color={colors.negative} />
-              </Pressable>
+              {role === "parent" ? (
+                <>
+                  <Pressable style={s.adjBtn} onPress={() => setStockModal({ pid: item.id, label: item.label, qty: String(item.quantity) })} testID={`adjust-${item.id}`}>
+                    <PencilSimple size={16} color={colors.onSurface} />
+                  </Pressable>
+                  <Pressable style={s.adjBtn} onPress={() => setDelProduct({ id: item.id, label: item.label })} testID={`delete-stock-${item.id}`}>
+                    <Trash size={16} color={colors.negative} />
+                  </Pressable>
+                </>
+              ) : null}
             </View>
           )}
         />
@@ -193,6 +213,21 @@ export default function ColaboratorSheet() {
           <Btn title="Adauga client" onPress={() => setClientModal(true)} icon={<UserPlus size={18} color={colors.onBrandPrimary} weight="bold" />} testID="add-client-button" />
         </View>
       ) : null}
+
+      {/* Invite code modal */}
+      <Modal visible={!!inviteCode} transparent animationType="fade" onRequestClose={() => setInviteCode(null)}>
+        <View style={[s.backdrop, { justifyContent: "center", padding: 24 }]}>
+          <View style={s.sheet}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>COD INVITATIE</Text>
+              <Pressable onPress={() => setInviteCode(null)} testID="close-invite"><X size={20} color={colors.onSurface} /></Pressable>
+            </View>
+            <Text style={s.confirmText}>Trimite acest cod partenerului. El isi creeaza contul din ecranul de autentificare, apasand „Am invitatie". Codul expira in 7 zile.</Text>
+            <View style={s.codeBox}><Text style={s.codeText} testID="invite-code">{inviteCode}</Text></View>
+            <Btn title="Gata" onPress={() => setInviteCode(null)} testID="invite-done" />
+          </View>
+        </View>
+      </Modal>
 
       {/* Stock adjust modal */}
       <Modal visible={!!stockModal} transparent animationType="fade" onRequestClose={() => setStockModal(null)}>
@@ -294,4 +329,6 @@ const useStyles = makeStyles((c) => ({
   sheetTitle: { fontFamily: fonts.monoMedium, fontSize: 13, letterSpacing: 1, color: c.onSurface },
   sheetProd: { fontFamily: fonts.mono, fontSize: 14, color: c.onSurface },
   confirmText: { fontFamily: fonts.mono, fontSize: 14, color: c.onSurface, lineHeight: 20 },
+  codeBox: { borderWidth: 2, borderColor: c.brandPrimary, paddingVertical: 18, alignItems: "center", backgroundColor: c.surfaceSecondary },
+  codeText: { fontFamily: fonts.monoMedium, fontSize: 28, letterSpacing: 4, color: c.onSurface },
 }));

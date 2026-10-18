@@ -32,6 +32,14 @@ Aplicatie mobila de logistica (consignatie) pentru distribuitor de detergenti. F
 - [x] (iter4) Scanare cu prompt de cantitate la comenzi, editare/stergere produse, incasare partiala (paid/payments, status Partial), toate totalurile pe baza de paid/ramas
 - [x] (iter5) Data proces verbal la consignatie, scanare cu cantitate la consignatie, stergere produse direct din tab-ul Stoc al colaboratorului
 
+## NodeOne — rebuild pe faze (schimbare de directie)
+- [x] FAZA 1: Rebrand NodeOne (logo nou, icon, splash, tema dark navy stil nodeintelligence.ro); arhitectura MULTI-TENANT:
+      firma-mama (parent) + parteneri izolati; inregistrare partener prin cod de invitatie; depozit central;
+      consignatia scade din central si creste la partener; vanzarile partenerului scad doar stocul lui;
+      izolare completa pe organizatie; gating pe rol in UI. (testat: iteration_6, 12/12 + frontend)
+- [ ] FAZA 2: Dashboard ERP bogat (stil Nordskar PIMS) — KPI-uri, miscari stoc, tabele, rapoarte, grafice
+- [ ] FAZA 3: Facturare stil Oblio — serie/numar, TVA (19/9/5), date firma (CUI/Reg.Com/IBAN), PDF din comanda
+
 ## Backlog
 - P1: Plata reala in-app (RevenueCat) la publicare
-- P2: Editare/stergere intrari consignatie (PV); grafice avansate; multi-user
+- P2: e-Factura ANAF/SPV (dupa Faza 3)

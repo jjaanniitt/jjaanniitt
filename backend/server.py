@@ -8,6 +8,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import re
+import hashlib
+import secrets
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional, Dict
@@ -142,6 +144,47 @@ async def current_user(creds: Optional[HTTPAuthorizationCredentials] = Depends(b
     return user
 
 
+async def require_parent(user=Depends(current_user)):
+    if user.get("role") != "parent":
+        raise HTTPException(status_code=403, detail="Doar firma-mama poate face aceasta actiune")
+    return user
+
+
+def org_id_of(user: dict) -> str:
+    return user.get("organization_id")
+
+
+def is_partner(user: dict) -> bool:
+    return user.get("role") == "partner"
+
+
+def collab_query(user: dict, extra: Optional[dict] = None) -> dict:
+    """Scope a collaborators query to the user's org (+ own partner for partner role)."""
+    q = {"deleted_at": None, "organization_id": org_id_of(user)}
+    if is_partner(user):
+        q["id"] = user.get("partner_id")
+    if extra:
+        q.update(extra)
+    return q
+
+
+def data_query(user: dict, extra: Optional[dict] = None) -> dict:
+    """Scope clients/orders/consignments to org (+ own collaborator for partner role)."""
+    q = {"deleted_at": None, "organization_id": org_id_of(user)}
+    if is_partner(user):
+        q["collaborator_id"] = user.get("partner_id")
+    if extra:
+        q.update(extra)
+    return q
+
+
+async def get_org(user: dict) -> dict:
+    org = await db.organizations.find_one({"id": org_id_of(user)}, {"_id": 0})
+    if not org:
+        raise HTTPException(status_code=404, detail="Organizatie negasita")
+    return org
+
+
 # ---------------------------------------------------------------------------
 # Catalog (seeded from the client's Excel)
 # ---------------------------------------------------------------------------
@@ -189,6 +232,25 @@ def product_label(p: dict) -> str:
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class ParentRegister(BaseModel):
+    email: str
+    password: str
+    organization_name: str
+    company_name: Optional[str] = ""
+
+
+class PartnerRegister(BaseModel):
+    email: str
+    password: str
+    invite_code: str
+    partner_name: Optional[str] = ""
+
+
+class InviteCreate(BaseModel):
+    collaborator_id: str
+    expires_hours: int = 168
 
 
 class CollaboratorCreate(BaseModel):
@@ -282,6 +344,28 @@ async def seed():
             paid = total if o.get("status") == "Finalizat" else 0
             await db.orders.update_one({"id": o["id"]}, {"$set": {"paid": paid, "payments": []}})
         await db.meta.insert_one({"id": "payments_v1", "done": True, "created_at": now_iso()})
+    # multi-tenant migration: owner -> parent, create org, attach organization_id everywhere
+    mt = await db.meta.find_one({"id": "multitenant_v1"})
+    if not mt:
+        owner = await db.users.find_one({"email": ADMIN_EMAIL})
+        org_id = new_id()
+        central = {p["id"]: 0 for p in CATALOG}
+        await db.organizations.insert_one({
+            "id": org_id, "name": "Firma mama", "owner_id": owner["id"] if owner else None,
+            "central_stock": central,
+            "company": {"name": "Firma mama", "cui": "", "reg_com": "", "address": "",
+                        "iban": "", "bank": "", "phone": "", "email": ADMIN_EMAIL},
+            "created_at": now_iso(),
+        })
+        if owner:
+            await db.users.update_one({"id": owner["id"]}, {"$set": {
+                "role": "parent", "organization_id": org_id, "partner_id": None}})
+        # attach org to all existing domain docs
+        for coll in ("collaborators", "clients", "orders", "consignments", "products"):
+            await db[coll].update_many({"organization_id": {"$exists": False}}, {"$set": {"organization_id": org_id}})
+        await db.meta.insert_one({"id": "multitenant_v1", "done": True, "org_id": org_id, "created_at": now_iso()})
+    await db.users.create_index("email", unique=True)
+    await db.invites.create_index("code_hash", unique=True)
     logger.info("Seed complete")
 
 
@@ -296,13 +380,101 @@ async def login(body: LoginRequest):
     if not user or not valid:
         raise HTTPException(status_code=401, detail="Email sau parola gresita")
     token = make_token(user["id"], user["email"])
-    return {"access_token": token, "token_type": "bearer", "user": {"id": user["id"], "email": user["email"]}}
+    return {"access_token": token, "token_type": "bearer",
+            "user": {"id": user["id"], "email": user["email"], "role": user.get("role", "parent")}}
+
+
+def _hash_code(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
+@api_router.post("/auth/register/parent")
+async def register_parent(body: ParentRegister):
+    email = body.email.strip().lower()
+    if not email or len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Email valid si parola de minim 6 caractere")
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="Email deja inregistrat")
+    org_id = new_id()
+    uid = new_id()
+    central = {p["id"]: 0 for p in CATALOG}
+    await db.organizations.insert_one({
+        "id": org_id, "name": body.organization_name.strip() or "Firma mea", "owner_id": uid,
+        "central_stock": central,
+        "company": {"name": (body.company_name or body.organization_name).strip(), "cui": "", "reg_com": "",
+                    "address": "", "iban": "", "bank": "", "phone": "", "email": email},
+        "created_at": now_iso(),
+    })
+    # clone the base catalog into the new org so it has products to work with
+    for p in CATALOG:
+        await db.products.insert_one({**p, "id": new_id(), "label": product_label(p),
+                                      "barcode": None, "organization_id": org_id, "base_id": p["id"]})
+    await db.users.insert_one({
+        "id": uid, "email": email, "password_hash": hash_password(body.password),
+        "role": "parent", "organization_id": org_id, "partner_id": None,
+        "plan": "free", "avatar_path": None, "name": body.organization_name.strip() or "Administrator",
+        "created_at": now_iso(),
+    })
+    token = make_token(uid, email)
+    return {"access_token": token, "token_type": "bearer", "user": {"id": uid, "email": email, "role": "parent"}}
+
+
+@api_router.post("/auth/invites", dependencies=[Depends(require_parent)])
+async def create_invite(body: InviteCreate, user=Depends(require_parent)):
+    collab = await db.collaborators.find_one(collab_query(user, {"id": body.collaborator_id}))
+    if not collab:
+        raise HTTPException(status_code=404, detail="Partener negasit")
+    raw = secrets.token_urlsafe(9)[:12].upper().replace("_", "X").replace("-", "Y")
+    expires = (datetime.now(timezone.utc) + timedelta(hours=max(1, body.expires_hours))).isoformat()
+    await db.invites.insert_one({
+        "id": new_id(), "code_hash": _hash_code(raw), "organization_id": org_id_of(user),
+        "partner_id": body.collaborator_id, "partner_name": collab["name"],
+        "created_by": user["id"], "expires_at": expires, "used_at": None, "used_by": None,
+        "created_at": now_iso(),
+    })
+    return {"invite_code": raw, "partner_name": collab["name"], "expires_at": expires}
+
+
+@api_router.get("/auth/invites", dependencies=[Depends(require_parent)])
+async def list_invites(user=Depends(require_parent)):
+    inv = await db.invites.find({"organization_id": org_id_of(user)}, {"_id": 0, "code_hash": 0}).sort("created_at", -1).to_list(500)
+    return inv
+
+
+@api_router.post("/auth/register/partner")
+async def register_partner(body: PartnerRegister):
+    email = body.email.strip().lower()
+    if not email or len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Email valid si parola de minim 6 caractere")
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="Email deja inregistrat")
+    uid = new_id()
+    invite = await db.invites.find_one_and_update(
+        {"code_hash": _hash_code(body.invite_code.strip().upper()), "used_at": None,
+         "expires_at": {"$gt": now_iso()}},
+        {"$set": {"used_at": now_iso(), "used_by": uid}},
+    )
+    if not invite:
+        raise HTTPException(status_code=400, detail="Cod de invitatie invalid, expirat sau deja folosit")
+    await db.users.insert_one({
+        "id": uid, "email": email, "password_hash": hash_password(body.password),
+        "role": "partner", "organization_id": invite["organization_id"], "partner_id": invite["partner_id"],
+        "plan": "pro", "avatar_path": None, "name": body.partner_name.strip() or invite.get("partner_name", "Partener"),
+        "created_at": now_iso(),
+    })
+    token = make_token(uid, email)
+    return {"access_token": token, "token_type": "bearer", "user": {"id": uid, "email": email, "role": "partner"}}
 
 
 @api_router.get("/me")
 async def me(user=Depends(current_user)):
     plan = user.get("plan", "free")
-    return {**user, "plan": plan, "plan_info": PLANS.get(plan, PLANS["free"])}
+    org = await db.organizations.find_one({"id": org_id_of(user)}, {"_id": 0})
+    partner = None
+    if is_partner(user) and user.get("partner_id"):
+        partner = await db.collaborators.find_one({"id": user["partner_id"]}, {"_id": 0})
+    return {**user, "plan": plan, "plan_info": PLANS.get(plan, PLANS["free"]),
+            "organization": org, "partner": partner}
 
 
 # ---------------------------------------------------------------------------
@@ -313,9 +485,9 @@ def _month_key(dt: Optional[str] = None) -> str:
 
 
 async def _usage(user: dict) -> dict:
-    partners = await db.collaborators.count_documents({"deleted_at": None})
+    partners = await db.collaborators.count_documents({"deleted_at": None, "organization_id": org_id_of(user)})
     month = _month_key()
-    orders_month = await db.orders.count_documents({"deleted_at": None, "created_at": {"$regex": f"^{month}"}})
+    orders_month = await db.orders.count_documents({"deleted_at": None, "organization_id": org_id_of(user), "created_at": {"$regex": f"^{month}"}})
     return {"partners": partners, "orders_month": orders_month, "month": month}
 
 
@@ -383,14 +555,14 @@ async def get_avatar(token: Optional[str] = None, user_id: Optional[str] = None)
 @api_router.get("/products")
 async def list_products(user=Depends(current_user)):
     items = await db.products.find(
-        {"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}, {"_id": 0}
+        {"organization_id": org_id_of(user), "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}, {"_id": 0}
     ).sort("order", 1).to_list(1000)
     return items
 
 
-async def _products_map() -> Dict[str, dict]:
+async def _products_map(org_id: str) -> Dict[str, dict]:
     items = await db.products.find(
-        {"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}, {"_id": 0}
+        {"organization_id": org_id, "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}, {"_id": 0}
     ).to_list(1000)
     return {p["id"]: p for p in items}
 
@@ -404,12 +576,13 @@ class ProductCreate(BaseModel):
 
 
 @api_router.post("/products")
-async def create_product(body: ProductCreate, user=Depends(current_user)):
-    last = await db.products.find({}, {"_id": 0, "order": 1}).sort("order", -1).limit(1).to_list(1)
+async def create_product(body: ProductCreate, user=Depends(require_parent)):
+    last = await db.products.find({"organization_id": org_id_of(user)}, {"_id": 0, "order": 1}).sort("order", -1).limit(1).to_list(1)
     next_order = (last[0]["order"] + 1) if last else 1
     p = {"id": new_id(), "category": body.category.strip(),
          "variant": (body.variant or body.category).strip(), "size": body.size.strip(),
          "price": int(body.price), "order": next_order, "custom": True,
+         "organization_id": org_id_of(user),
          "barcode": (body.barcode or "").strip() or None}
     p["label"] = product_label(p)
     await db.products.insert_one(p)
@@ -423,23 +596,23 @@ class ProductUpdate(BaseModel):
 
 
 @api_router.put("/products/{product_id}")
-async def update_product(product_id: str, body: ProductUpdate, user=Depends(current_user)):
+async def update_product(product_id: str, body: ProductUpdate, user=Depends(require_parent)):
     sets = {}
     if body.price is not None:
         sets["price"] = int(body.price)
     if body.barcode is not None:
         sets["barcode"] = body.barcode.strip() or None
     if sets:
-        await db.products.update_one({"id": product_id}, {"$set": sets})
-    p = await db.products.find_one({"id": product_id}, {"_id": 0})
+        await db.products.update_one({"id": product_id, "organization_id": org_id_of(user)}, {"$set": sets})
+    p = await db.products.find_one({"id": product_id, "organization_id": org_id_of(user)}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Produs negasit")
     return p
 
 
 @api_router.delete("/products/{product_id}")
-async def delete_product(product_id: str, user=Depends(current_user)):
-    res = await db.products.update_one({"id": product_id}, {"$set": {"deleted_at": now_iso()}})
+async def delete_product(product_id: str, user=Depends(require_parent)):
+    res = await db.products.update_one({"id": product_id, "organization_id": org_id_of(user)}, {"$set": {"deleted_at": now_iso()}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Produs negasit")
     return {"ok": True}
@@ -490,7 +663,7 @@ async def _collab_totals(collab: dict) -> dict:
 
 @api_router.get("/collaborators")
 async def list_collaborators(user=Depends(current_user)):
-    collabs = await db.collaborators.find({"deleted_at": None}, {"_id": 0}).sort("created_at", 1).to_list(1000)
+    collabs = await db.collaborators.find(collab_query(user), {"_id": 0}).sort("created_at", 1).to_list(1000)
     out = []
     for c in collabs:
         out.append({**c, **(await _collab_totals(c))})
@@ -498,15 +671,16 @@ async def list_collaborators(user=Depends(current_user)):
 
 
 @api_router.post("/collaborators")
-async def create_collaborator(body: CollaboratorCreate, user=Depends(current_user)):
+async def create_collaborator(body: CollaboratorCreate, user=Depends(require_parent)):
     limit = PLANS.get(user.get("plan", "free"), PLANS["free"])["max_partners"]
     if limit is not None:
-        count = await db.collaborators.count_documents({"deleted_at": None})
+        count = await db.collaborators.count_documents({"deleted_at": None, "organization_id": org_id_of(user)})
         if count >= limit:
             raise HTTPException(status_code=403, detail=f"Ai atins limita de {limit} parteneri a planului tau. Fa upgrade pentru mai multi.")
-    stock = {p["id"]: 0 for p in CATALOG}
+    pmap = await _products_map(org_id_of(user))
+    stock = {pid: 0 for pid in pmap}
     doc = {"id": new_id(), "name": body.name.strip(), "notes": body.notes or "", "stock": stock,
-           "created_at": now_iso(), "deleted_at": None}
+           "organization_id": org_id_of(user), "created_at": now_iso(), "deleted_at": None}
     await db.collaborators.insert_one(doc)
     doc.pop("_id", None)
     return {**doc, **(await _collab_totals(doc))}
@@ -521,10 +695,10 @@ def _stock_list(collab: dict, pmap: Dict[str, dict], intrat: Dict[str, int], ies
 
 @api_router.get("/collaborators/{collab_id}")
 async def get_collaborator(collab_id: str, user=Depends(current_user)):
-    collab = await db.collaborators.find_one({"id": collab_id, "deleted_at": None}, {"_id": 0})
+    collab = await db.collaborators.find_one(collab_query(user, {"id": collab_id}), {"_id": 0})
     if not collab:
         raise HTTPException(status_code=404, detail="Colaborator negasit")
-    pmap = await _products_map()
+    pmap = await _products_map(org_id_of(user))
     totals = await _collab_totals(collab)
     clients = await db.clients.find({"collaborator_id": collab_id, "deleted_at": None}, {"_id": 0}).sort("created_at", 1).to_list(1000)
     client_rows = []
@@ -563,11 +737,13 @@ class ConsignmentCreate(BaseModel):
 
 
 @api_router.post("/collaborators/{collab_id}/consignments")
-async def create_consignment(collab_id: str, body: ConsignmentCreate, user=Depends(current_user)):
-    collab = await db.collaborators.find_one({"id": collab_id, "deleted_at": None})
+async def create_consignment(collab_id: str, body: ConsignmentCreate, user=Depends(require_parent)):
+    collab = await db.collaborators.find_one(collab_query(user, {"id": collab_id}))
     if not collab:
         raise HTTPException(status_code=404, detail="Colaborator negasit")
-    pmap = await _products_map()
+    org = await get_org(user)
+    central = dict(org.get("central_stock", {}))
+    pmap = await _products_map(org_id_of(user))
     stock = dict(collab.get("stock", {}))
     items = []
     total_items = 0
@@ -577,29 +753,77 @@ async def create_consignment(collab_id: str, body: ConsignmentCreate, user=Depen
         p = pmap.get(it.product_id)
         if not p:
             raise HTTPException(status_code=400, detail=f"Produs invalid: {it.product_id}")
+        avail = central.get(p["id"], 0)
+        if it.qty > avail:
+            raise HTTPException(status_code=400, detail=f"Stoc central insuficient pentru {p['label']} (disponibil {avail}). Fa receptie in depozit mai intai.")
         items.append({"product_id": p["id"], "label": p["label"], "size": p["size"], "qty": it.qty})
         stock[p["id"]] = stock.get(p["id"], 0) + it.qty
+        central[p["id"]] = avail - it.qty
         total_items += it.qty
     if not items:
         raise HTTPException(status_code=400, detail="Nu ai adaugat produse")
-    doc = {"id": new_id(), "collaborator_id": collab_id, "pv_number": body.pv_number.strip(),
+    doc = {"id": new_id(), "collaborator_id": collab_id, "organization_id": org_id_of(user),
+           "pv_number": body.pv_number.strip(),
            "date": body.date or now_iso(), "items": items, "total_items": total_items,
            "created_at": now_iso(), "deleted_at": None}
     await db.consignments.insert_one(doc)
     await db.collaborators.update_one({"id": collab_id}, {"$set": {"stock": stock}})
+    await db.organizations.update_one({"id": org_id_of(user)}, {"$set": {"central_stock": central}})
     doc.pop("_id", None)
     return doc
 
 
+# ---------------------------------------------------------------------------
+# Central warehouse (depozit firma-mama)
+# ---------------------------------------------------------------------------
+class CentralReception(BaseModel):
+    items: List[ConsignmentItem]
+    note: Optional[str] = ""
+
+
+@api_router.get("/central-stock")
+async def central_stock(user=Depends(require_parent)):
+    org = await get_org(user)
+    pmap = await _products_map(org_id_of(user))
+    central = org.get("central_stock", {})
+    rows = [{**p, "quantity": central.get(p["id"], 0)} for p in sorted(pmap.values(), key=lambda x: x["order"])]
+    # how much is out in partners (consigned)
+    collabs = await db.collaborators.find({"deleted_at": None, "organization_id": org_id_of(user)}, {"_id": 0}).to_list(1000)
+    consigned = sum(sum(c.get("stock", {}).values()) for c in collabs)
+    return {"rows": rows, "total_central": sum(central.values()), "total_consigned": consigned}
+
+
+@api_router.post("/central-stock/reception")
+async def central_reception(body: CentralReception, user=Depends(require_parent)):
+    org = await get_org(user)
+    central = dict(org.get("central_stock", {}))
+    pmap = await _products_map(org_id_of(user))
+    items = []
+    for it in body.items:
+        if it.qty == 0:
+            continue
+        p = pmap.get(it.product_id)
+        if not p:
+            raise HTTPException(status_code=400, detail=f"Produs invalid: {it.product_id}")
+        central[p["id"]] = central.get(p["id"], 0) + it.qty
+        items.append({"product_id": p["id"], "label": p["label"], "qty": it.qty})
+    if not items:
+        raise HTTPException(status_code=400, detail="Nu ai adaugat produse")
+    await db.organizations.update_one({"id": org_id_of(user)}, {"$set": {"central_stock": central}})
+    await db.receptions.insert_one({"id": new_id(), "organization_id": org_id_of(user),
+                                    "items": items, "note": body.note or "", "created_at": now_iso()})
+    return {"ok": True, "central_stock": central}
+
+
 @api_router.delete("/collaborators/{collab_id}")
-async def delete_collaborator(collab_id: str, user=Depends(current_user)):
-    await db.collaborators.update_one({"id": collab_id}, {"$set": {"deleted_at": now_iso()}})
+async def delete_collaborator(collab_id: str, user=Depends(require_parent)):
+    await db.collaborators.update_one(collab_query(user, {"id": collab_id}), {"$set": {"deleted_at": now_iso()}})
     return {"ok": True}
 
 
 @api_router.put("/collaborators/{collab_id}/stock")
-async def adjust_stock(collab_id: str, body: StockAdjust, user=Depends(current_user)):
-    collab = await db.collaborators.find_one({"id": collab_id, "deleted_at": None})
+async def adjust_stock(collab_id: str, body: StockAdjust, user=Depends(require_parent)):
+    collab = await db.collaborators.find_one(collab_query(user, {"id": collab_id}))
     if not collab:
         raise HTTPException(status_code=404, detail="Colaborator negasit")
     await db.collaborators.update_one({"id": collab_id}, {"$set": {f"stock.{body.product_id}": body.quantity}})
@@ -611,7 +835,7 @@ async def adjust_stock(collab_id: str, body: StockAdjust, user=Depends(current_u
 # ---------------------------------------------------------------------------
 @api_router.post("/collaborators/{collab_id}/clients")
 async def create_client(collab_id: str, body: ClientCreate, user=Depends(current_user)):
-    collab = await db.collaborators.find_one({"id": collab_id, "deleted_at": None})
+    collab = await db.collaborators.find_one(collab_query(user, {"id": collab_id}))
     if not collab:
         raise HTTPException(status_code=404, detail="Colaborator negasit")
     existing = await db.clients.find_one({
@@ -621,6 +845,7 @@ async def create_client(collab_id: str, body: ClientCreate, user=Depends(current
     if existing:
         raise HTTPException(status_code=409, detail=f"Clientul \"{existing['name']}\" exista deja")
     doc = {"id": new_id(), "collaborator_id": collab_id, "collaborator_name": collab["name"],
+           "organization_id": org_id_of(user),
            "name": body.name.strip(), "phone": body.phone or "", "notes": body.notes or "",
            "created_at": now_iso(), "deleted_at": None}
     await db.clients.insert_one(doc)
@@ -630,7 +855,7 @@ async def create_client(collab_id: str, body: ClientCreate, user=Depends(current
 
 @api_router.get("/clients/{client_id}")
 async def get_client(client_id: str, user=Depends(current_user)):
-    cl = await db.clients.find_one({"id": client_id, "deleted_at": None}, {"_id": 0})
+    cl = await db.clients.find_one(data_query(user, {"id": client_id}), {"_id": 0})
     if not cl:
         raise HTTPException(status_code=404, detail="Client negasit")
     orders = await db.orders.find({"client_id": client_id, "deleted_at": None}, {"_id": 0}).sort("created_at", -1).to_list(2000)
@@ -641,13 +866,13 @@ async def get_client(client_id: str, user=Depends(current_user)):
 
 @api_router.delete("/clients/{client_id}")
 async def delete_client(client_id: str, user=Depends(current_user)):
-    await db.clients.update_one({"id": client_id}, {"$set": {"deleted_at": now_iso()}})
+    await db.clients.update_one(data_query(user, {"id": client_id}), {"$set": {"deleted_at": now_iso()}})
     return {"ok": True}
 
 
 @api_router.put("/clients/{client_id}")
 async def update_client(client_id: str, body: ClientUpdate, user=Depends(current_user)):
-    cl = await db.clients.find_one({"id": client_id, "deleted_at": None})
+    cl = await db.clients.find_one(data_query(user, {"id": client_id}))
     if not cl:
         raise HTTPException(status_code=404, detail="Client negasit")
     sets = {}
@@ -671,17 +896,17 @@ async def update_client(client_id: str, body: ClientUpdate, user=Depends(current
 # ---------------------------------------------------------------------------
 @api_router.get("/orders")
 async def list_orders(status: Optional[str] = None, collaborator_id: Optional[str] = None, user=Depends(current_user)):
-    q = {"deleted_at": None}
+    q = data_query(user)
     if status:
         q["status"] = status
-    if collaborator_id:
+    if collaborator_id and not is_partner(user):
         q["collaborator_id"] = collaborator_id
     return await db.orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(5000)
 
 
 @api_router.get("/orders/{order_id}")
 async def get_order(order_id: str, user=Depends(current_user)):
-    o = await db.orders.find_one({"id": order_id, "deleted_at": None}, {"_id": 0})
+    o = await db.orders.find_one(data_query(user, {"id": order_id}), {"_id": 0})
     if not o:
         raise HTTPException(status_code=404, detail="Comanda negasita")
     return o
@@ -700,16 +925,18 @@ async def create_order(body: OrderCreate, user=Depends(current_user)):
     limit = PLANS.get(user.get("plan", "free"), PLANS["free"])["max_orders_month"]
     if limit is not None:
         month = _month_key()
-        count = await db.orders.count_documents({"deleted_at": None, "created_at": {"$regex": f"^{month}"}})
+        count = await db.orders.count_documents({"deleted_at": None, "organization_id": org_id_of(user), "created_at": {"$regex": f"^{month}"}})
         if count >= limit:
             raise HTTPException(status_code=403, detail=f"Ai atins limita de {limit} comenzi/luna a planului tau. Fa upgrade pentru mai multe.")
-    collab = await db.collaborators.find_one({"id": body.collaborator_id, "deleted_at": None})
+    if is_partner(user) and body.collaborator_id != user.get("partner_id"):
+        raise HTTPException(status_code=403, detail="Nu poti crea comenzi pentru alt partener")
+    collab = await db.collaborators.find_one(collab_query(user, {"id": body.collaborator_id}))
     if not collab:
         raise HTTPException(status_code=404, detail="Colaborator negasit")
-    cl = await db.clients.find_one({"id": body.client_id, "deleted_at": None})
+    cl = await db.clients.find_one({"id": body.client_id, "deleted_at": None, "organization_id": org_id_of(user)})
     if not cl:
         raise HTTPException(status_code=404, detail="Client negasit")
-    pmap = await _products_map()
+    pmap = await _products_map(org_id_of(user))
     lines = []
     total = 0
     stock = dict(collab.get("stock", {}))
@@ -731,6 +958,7 @@ async def create_order(body: OrderCreate, user=Depends(current_user)):
     paid = total if req_status == "Finalizat" else 0
     payments = [{"amount": total, "date": body.date or now_iso(), "note": "Incasat integral"}] if paid else []
     order = {"id": new_id(), "document_no": document_no,
+             "organization_id": org_id_of(user),
              "collaborator_id": collab["id"], "collaborator_name": collab["name"],
              "client_id": cl["id"], "client_name": cl["name"], "address": body.address or "",
              "lines": lines, "total": total, "paid": paid, "payments": payments,
@@ -751,16 +979,16 @@ class OrderUpdate(BaseModel):
 
 @api_router.put("/orders/{order_id}")
 async def update_order(order_id: str, body: OrderUpdate, user=Depends(current_user)):
-    existing = await db.orders.find_one({"id": order_id, "deleted_at": None})
+    existing = await db.orders.find_one(data_query(user, {"id": order_id}))
     if not existing:
         raise HTTPException(status_code=404, detail="Comanda negasita")
     collab = await db.collaborators.find_one({"id": existing["collaborator_id"], "deleted_at": None})
     if not collab:
         raise HTTPException(status_code=404, detail="Colaborator negasit")
-    cl = await db.clients.find_one({"id": body.client_id, "deleted_at": None})
+    cl = await db.clients.find_one({"id": body.client_id, "deleted_at": None, "organization_id": org_id_of(user)})
     if not cl:
         raise HTTPException(status_code=404, detail="Client negasit")
-    pmap = await _products_map()
+    pmap = await _products_map(org_id_of(user))
     stock = dict(collab.get("stock", {}))
     # restore old line quantities
     for ln in existing["lines"]:
@@ -802,7 +1030,7 @@ async def update_order(order_id: str, body: OrderUpdate, user=Depends(current_us
 async def update_status(order_id: str, body: StatusUpdate, user=Depends(current_user)):
     if body.status not in ("In asteptare", "Finalizat"):
         raise HTTPException(status_code=400, detail="Status invalid")
-    o = await db.orders.find_one({"id": order_id, "deleted_at": None})
+    o = await db.orders.find_one(data_query(user, {"id": order_id}))
     if not o:
         raise HTTPException(status_code=404, detail="Comanda negasita")
     total = o.get("total", 0)
@@ -826,7 +1054,7 @@ class PaymentCreate(BaseModel):
 
 @api_router.post("/orders/{order_id}/payments")
 async def add_payment(order_id: str, body: PaymentCreate, user=Depends(current_user)):
-    o = await db.orders.find_one({"id": order_id, "deleted_at": None})
+    o = await db.orders.find_one(data_query(user, {"id": order_id}))
     if not o:
         raise HTTPException(status_code=404, detail="Comanda negasita")
     if body.amount <= 0:
@@ -846,7 +1074,7 @@ async def add_payment(order_id: str, body: PaymentCreate, user=Depends(current_u
 
 @api_router.delete("/orders/{order_id}")
 async def delete_order(order_id: str, user=Depends(current_user)):
-    o = await db.orders.find_one({"id": order_id, "deleted_at": None})
+    o = await db.orders.find_one(data_query(user, {"id": order_id}))
     if not o:
         raise HTTPException(status_code=404, detail="Comanda negasita")
     collab = await db.collaborators.find_one({"id": o["collaborator_id"]})
@@ -864,9 +1092,9 @@ async def delete_order(order_id: str, user=Depends(current_user)):
 # ---------------------------------------------------------------------------
 @api_router.get("/dashboard")
 async def dashboard(period: str = "all", user=Depends(current_user)):
-    all_orders = await db.orders.find({"deleted_at": None}, {"_id": 0}).to_list(10000)
-    collabs = await db.collaborators.find({"deleted_at": None}, {"_id": 0}).to_list(1000)
-    pmap = await _products_map()
+    all_orders = await db.orders.find(data_query(user), {"_id": 0}).to_list(10000)
+    collabs = await db.collaborators.find(collab_query(user), {"_id": 0}).to_list(1000)
+    pmap = await _products_map(org_id_of(user))
 
     today = now_iso()[:10]
     month = now_iso()[:7]
@@ -921,7 +1149,7 @@ async def dashboard(period: str = "all", user=Depends(current_user)):
 
 @api_router.get("/reports/monthly")
 async def monthly_report(month: Optional[str] = None, user=Depends(current_user)):
-    orders = await db.orders.find({"deleted_at": None}, {"_id": 0}).to_list(10000)
+    orders = await db.orders.find(data_query(user), {"_id": 0}).to_list(10000)
     months = sorted({(o.get("date") or "")[:7] for o in orders if o.get("date")}, reverse=True)
     if not month:
         month = months[0] if months else datetime.now(timezone.utc).strftime("%Y-%m")

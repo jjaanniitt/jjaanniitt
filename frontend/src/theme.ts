@@ -5,42 +5,42 @@ import { Appearance, StyleSheet, useColorScheme } from "react-native";
 export type ColorScheme = "light" | "dark";
 
 const light = {
-  surface: "#FFFFFF",
-  onSurface: "#111111",
-  surfaceSecondary: "#F4F4F5",
-  onSurfaceSecondary: "#111111",
-  surfaceTertiary: "#E4E4E7",
-  onSurfaceTertiary: "#111111",
-  surfaceInverse: "#111111",
-  onSurfaceInverse: "#FFFFFF",
-  muted: "#71717A",
+  surface: "#0A0E1F",
+  onSurface: "#F4F6FF",
+  surfaceSecondary: "#121833",
+  onSurfaceSecondary: "#F4F6FF",
+  surfaceTertiary: "#1B2240",
+  onSurfaceTertiary: "#F4F6FF",
+  surfaceInverse: "#E9ECFF",
+  onSurfaceInverse: "#0A0E1F",
+  muted: "#8A93B2",
 
-  brand: "#111111",
+  brand: "#4F5DFF",
   onBrand: "#FFFFFF",
-  brandPrimary: "#111111",
+  brandPrimary: "#4F5DFF",
   onBrandPrimary: "#FFFFFF",
-  brandSecondary: "#52525B",
-  onBrandSecondary: "#FFFFFF",
-  brandTertiary: "#E4E4E7",
-  onBrandTertiary: "#111111",
+  brandSecondary: "#2A3357",
+  onBrandSecondary: "#F4F6FF",
+  brandTertiary: "#1B2240",
+  onBrandTertiary: "#F4F6FF",
 
-  // Status fills (pale bg + strong on-text)
-  success: "#E3FCEF",
-  onSuccess: "#0F5132",
-  warning: "#FFF3CD",
-  onWarning: "#664D03",
-  error: "#F8D7DA",
-  onError: "#842029",
-  info: "#E2E3E5",
-  onInfo: "#383D41",
+  // Status fills (dark bg + bright on-text)
+  success: "#0E2A1E",
+  onSuccess: "#5BE3A7",
+  warning: "#2E2410",
+  onWarning: "#FFD166",
+  error: "#2E1518",
+  onError: "#FF8A9B",
+  info: "#161B33",
+  onInfo: "#AEB6D8",
 
   // Strong signal colors (text / emphasis)
-  negative: "#B42318",
-  positive: "#0F5132",
+  negative: "#FF6B6B",
+  positive: "#5BE3A7",
 
-  border: "#D4D4D8",
-  borderStrong: "#111111",
-  divider: "#E4E4E7",
+  border: "#242C4D",
+  borderStrong: "#3A4470",
+  divider: "#1C2340",
 };
 
 export type ThemeColors = typeof light;

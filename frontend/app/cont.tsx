@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { Camera, SignOut, Crown, CaretRight, User } from "phosphor-react-native";
+import { Camera, SignOut, Crown, CaretRight, User, Package } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Card } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
@@ -22,6 +22,7 @@ export default function Cont() {
   const qc = useQueryClient();
   const toast = useToast();
   const { signOut } = useAuth();
+  const { role } = useAuth();
   const [avatarV, setAvatarV] = useState(0);
 
   const meQ = useQuery({ queryKey: ["me"], queryFn: () => api<any>("/me") });
@@ -72,7 +73,21 @@ export default function Cont() {
           </Pressable>
           <Text style={s.name}>{me?.name || "Administrator"}</Text>
           <Text style={s.email}>{me?.email}</Text>
+          <View style={s.roleBadge}>
+            <Text style={s.roleText}>{role === "parent" ? "FIRMA MAMA" : "PARTENER"}</Text>
+          </View>
         </View>
+
+        {role === "parent" ? (
+          <Pressable style={s.navCard} onPress={() => router.push("/depozit")} testID="open-depozit">
+            <Package size={22} color={colors.onSurface} weight="fill" />
+            <View style={{ flex: 1 }}>
+              <Text style={s.planLabel}>STOC</Text>
+              <Text style={s.planName}>Depozit central</Text>
+            </View>
+            <CaretRight size={18} color={colors.muted} />
+          </Pressable>
+        ) : null}
 
         <Pressable style={s.planCard} onPress={() => router.push("/abonament")} testID="open-plans">
           <Crown size={22} color={colors.onSurface} weight="fill" />
@@ -116,6 +131,9 @@ const useStyles = makeStyles((c) => ({
   camBadge: { position: "absolute", bottom: -1, right: -1, width: 28, height: 28, backgroundColor: c.brandPrimary, borderWidth: 1, borderColor: c.surface, alignItems: "center", justifyContent: "center" },
   name: { fontFamily: fonts.displayMedium, fontSize: 20, color: c.onSurface, marginTop: 6 },
   email: { fontFamily: fonts.mono, fontSize: 13, color: c.muted },
+  roleBadge: { marginTop: 6, borderWidth: 1, borderColor: c.brandPrimary, paddingHorizontal: 10, paddingVertical: 3 },
+  roleText: { fontFamily: fonts.monoMedium, fontSize: 10, letterSpacing: 1, color: c.brandPrimary },
+  navCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: c.borderStrong, padding: 16, backgroundColor: c.surface },
   planCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: c.borderStrong, padding: 16, backgroundColor: c.surface },
   planLabel: { fontFamily: fonts.mono, fontSize: 10, letterSpacing: 0.5, color: c.muted },
   planName: { fontFamily: fonts.monoMedium, fontSize: 18, color: c.onSurface, marginTop: 2 },

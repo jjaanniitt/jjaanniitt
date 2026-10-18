@@ -38,7 +38,7 @@ export default function RootLayout() {
             <KeyboardProvider>
               <AuthProvider>
                 <ToastProvider>
-                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }}>
+                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#0A0E1F" } }}>
                     <Stack.Screen name="comanda-noua" options={{ presentation: "modal" }} />
                     <Stack.Screen name="consignatie" options={{ presentation: "modal" }} />
                   </Stack>
@@ -53,5 +53,5 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#FFFFFF" },
+  root: { flex: 1, backgroundColor: "#0A0E1F" },
 });

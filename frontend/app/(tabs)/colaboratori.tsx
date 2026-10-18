@@ -8,6 +8,7 @@ import { Plus, Storefront, CaretRight, X } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, EmptyState, Field, InitialsBlock } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
+import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { formatRON, initials } from "@/src/lib/format";
 import { makeStyles, useTheme, fonts } from "@/src/theme";
@@ -18,6 +19,7 @@ export default function Colaboratori() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const toast = useToast();
+  const { role } = useAuth();
   const [modal, setModal] = useState(false);
   const [name, setName] = useState("");
 
@@ -63,7 +65,9 @@ export default function Colaboratori() {
       />
 
       <View style={[s.cta, { paddingBottom: insets.bottom + 10 }]}>
-        <Btn title="Adauga colaborator" onPress={() => setModal(true)} icon={<Plus size={18} color={colors.onBrandPrimary} weight="bold" />} testID="add-collab-button" />
+        {role === "parent" ? (
+          <Btn title="Adauga colaborator" onPress={() => setModal(true)} icon={<Plus size={18} color={colors.onBrandPrimary} weight="bold" />} testID="add-collab-button" />
+        ) : null}
       </View>
 
       <Modal visible={modal} transparent animationType="fade" onRequestClose={() => setModal(false)}>

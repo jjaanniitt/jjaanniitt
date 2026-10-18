@@ -8,6 +8,7 @@ import { AppHeader } from "@/src/components/header";
 import { Btn, EmptyState, Field } from "@/src/components/ui";
 import { BarcodeScanner } from "@/src/components/barcode-scanner";
 import { useToast } from "@/src/components/toast";
+import { useAuth } from "@/src/context/auth";
 import { api } from "@/src/api/client";
 import { makeStyles, useTheme, fonts } from "@/src/theme";
 
@@ -17,6 +18,7 @@ export default function Produse() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const toast = useToast();
+  const { role } = useAuth();
   const [cat, setCat] = useState("Toate");
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ category: "", variant: "", size: "", price: "", barcode: "" });
@@ -92,7 +94,7 @@ export default function Produse() {
         keyExtractor={(p) => p.id}
         contentContainerStyle={s.listContent}
         renderItem={({ item }) => (
-          <Pressable style={s.row} testID={`product-${item.id}`} onPress={() => setEdit({ id: item.id, label: `${item.variant} ${item.size}`, price: String(item.price), barcode: item.barcode || "" })}>
+          <Pressable style={s.row} testID={`product-${item.id}`} onPress={() => role === "parent" && setEdit({ id: item.id, label: `${item.variant} ${item.size}`, price: String(item.price), barcode: item.barcode || "" })}>
             <View style={s.sizeBox}><Text style={s.sizeText}>{item.size}</Text></View>
             <View style={{ flex: 1 }}>
               <Text style={s.name} numberOfLines={1}>{item.variant}</Text>
@@ -108,7 +110,9 @@ export default function Produse() {
       />
 
       <View style={[s.cta, { paddingBottom: insets.bottom + 10 }]}>
-        <Btn title="Adauga produs" onPress={() => setModal(true)} icon={<Plus size={18} color={colors.onBrandPrimary} weight="bold" />} testID="add-product-button" />
+        {role === "parent" ? (
+          <Btn title="Adauga produs" onPress={() => setModal(true)} icon={<Plus size={18} color={colors.onBrandPrimary} weight="bold" />} testID="add-product-button" />
+        ) : null}
       </View>
 
       <Modal visible={modal && !scanner} transparent animationType="fade" onRequestClose={() => setModal(false)}>
