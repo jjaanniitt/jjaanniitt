@@ -28,6 +28,7 @@ export default function ComandaNoua() {
   const [clientModal, setClientModal] = useState(false);
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
   const [prefilled, setPrefilled] = useState(false);
   const [address, setAddress] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -80,7 +81,18 @@ export default function ComandaNoua() {
     enabled: !!collabId,
   });
 
-  const clients = collabDetailQ.data?.clients ?? [];
+  const clients = useMemo(() => collabDetailQ.data?.clients ?? [], [collabDetailQ.data]);
+
+  const selectedClient = useMemo(() => clients.find((c: any) => c.id === clientId), [clients, clientId]);
+  const filteredClients = useMemo(() => {
+    const q = clientSearch.trim().toLowerCase();
+    if (q) return clients.filter((c: any) => c.name.toLowerCase().includes(q)).slice(0, 8);
+    return [...clients].sort((a: any, b: any) => (b.orders_count || 0) - (a.orders_count || 0)).slice(0, 5);
+  }, [clients, clientSearch]);
+  const dupClient = useMemo(() => {
+    const n = clientName.trim().toLowerCase();
+    return n ? clients.find((c: any) => c.name.trim().toLowerCase() === n) : undefined;
+  }, [clients, clientName]);
 
   const groups = useMemo(() => {
     const map: Record<string, any[]> = {};
@@ -98,7 +110,7 @@ export default function ComandaNoua() {
     mutationFn: () => api(`/collaborators/${collabId}/clients`, { method: "POST", body: { name: clientName, phone: clientPhone } }),
     onSuccess: (c: any) => {
       qc.invalidateQueries({ queryKey: ["collaborator", collabId] });
-      setClientId(c.id); setClientModal(false); setClientName(""); setClientPhone("");
+      setClientId(c.id); setClientModal(false); setClientName(""); setClientPhone(""); setClientSearch("");
       toast("Client adaugat", "success");
     },
     onError: (e: any) => toast(e.message || "Eroare", "error"),
@@ -159,24 +171,55 @@ export default function ComandaNoua() {
         {/* Client */}
         <View style={s.sectionRow}>
           <Text style={s.section}>CLIENT</Text>
-          <Pressable onPress={() => collabId && setClientModal(true)} style={s.addClient} testID="open-add-client">
+          <Pressable
+            onPress={() => { if (collabId) { setClientName(clientSearch.trim()); setClientModal(true); } }}
+            style={s.addClient}
+            testID="open-add-client"
+          >
             <UserPlus size={14} color={colors.onSurface} />
             <Text style={s.addClientText}>CLIENT NOU</Text>
           </Pressable>
         </View>
-        {clients.length === 0 ? (
-          <Text style={s.hint}>Niciun client. Adauga unul cu butonul Client nou.</Text>
-        ) : (
-          <View style={s.pickRow}>
-            {clients.map((c: any) => {
-              const active = c.id === clientId;
-              return (
-                <Pressable key={c.id} onPress={() => setClientId(c.id)} style={[s.pick, active && s.pickActive]} testID={`pick-client-${c.id}`}>
-                  <Text style={[s.pickText, active && s.pickTextActive]}>{c.name}</Text>
-                </Pressable>
-              );
-            })}
+        {selectedClient ? (
+          <View style={s.selectedClient} testID="selected-client">
+            <View style={{ flex: 1 }}>
+              <Text style={s.selName}>{selectedClient.name}</Text>
+              <Text style={s.selMeta}>
+                {selectedClient.orders_count} comenzi{selectedClient.phone ? ` · ${selectedClient.phone}` : ""}
+              </Text>
+            </View>
+            <Pressable onPress={() => { setClientId(null); setClientSearch(""); }} testID="clear-client" hitSlop={8}>
+              <X size={18} color={colors.muted} />
+            </Pressable>
           </View>
+        ) : clients.length === 0 ? (
+          <Text style={s.hint}>Niciun client. Adauga unul cu butonul CLIENT NOU.</Text>
+        ) : (
+          <>
+            <Field
+              label="Cauta client"
+              value={clientSearch}
+              onChangeText={setClientSearch}
+              placeholder="Scrie numele clientului..."
+              testID="client-search-input"
+            />
+            {!clientSearch.trim() && <Text style={s.topLabel}>CEI MAI UTILIZATI CLIENTI</Text>}
+            {filteredClients.length === 0 ? (
+              <Text style={s.hint}>Niciun client gasit. Apasa CLIENT NOU pentru a-l adauga.</Text>
+            ) : (
+              <View style={s.clientList}>
+                {filteredClients.map((c: any) => (
+                  <Pressable key={c.id} onPress={() => setClientId(c.id)} style={s.clientItem} testID={`pick-client-${c.id}`}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.clientItemName}>{c.name}</Text>
+                      {c.phone ? <Text style={s.clientItemPhone}>{c.phone}</Text> : null}
+                    </View>
+                    <Text style={s.clientItemCount}>{c.orders_count} com.</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </>
         )}
 
         {/* Date & address */}
@@ -246,8 +289,22 @@ export default function ComandaNoua() {
                 <Pressable onPress={() => setClientModal(false)} testID="close-client-modal"><X size={20} color={colors.onSurface} /></Pressable>
               </View>
               <Field label="Nume client" value={clientName} onChangeText={setClientName} placeholder="ex. Ion Popescu" autoFocus testID="client-name-input" />
+              {dupClient ? (
+                <View style={s.dupWarn} testID="dup-warning">
+                  <Text style={s.dupText}>Clientul „{dupClient.name}” exista deja.</Text>
+                  <Pressable
+                    onPress={() => {
+                      setClientId(dupClient.id);
+                      setClientModal(false); setClientName(""); setClientPhone(""); setClientSearch("");
+                    }}
+                    testID="select-existing-client"
+                  >
+                    <Text style={s.dupLink}>Selecteaza clientul existent</Text>
+                  </Pressable>
+                </View>
+              ) : null}
               <Field label="Telefon (optional)" value={clientPhone} onChangeText={setClientPhone} placeholder="07xx xxx xxx" keyboardType="phone-pad" testID="client-phone-input" />
-              <Btn title="Salveaza client" onPress={() => clientName.trim() && addClient.mutate()} loading={addClient.isPending} disabled={!clientName.trim()} testID="save-client-button" />
+              <Btn title="Salveaza client" onPress={() => clientName.trim() && addClient.mutate()} loading={addClient.isPending} disabled={!clientName.trim() || !!dupClient} testID="save-client-button" />
             </View>
           </KeyboardAwareScrollView>
         </View>
@@ -289,6 +346,18 @@ const useStyles = makeStyles((c) => ({
   addClient: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: c.borderStrong, paddingHorizontal: 10, paddingVertical: 6 },
   addClientText: { fontFamily: fonts.monoMedium, fontSize: 10, letterSpacing: 0.5, color: c.onSurface },
   hint: { fontFamily: fonts.mono, fontSize: 12, color: c.muted },
+  topLabel: { fontFamily: fonts.monoMedium, fontSize: 10, letterSpacing: 1, color: c.muted, marginTop: 4 },
+  clientList: { borderWidth: 1, borderColor: c.border },
+  clientItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.divider },
+  clientItemName: { fontFamily: fonts.mono, fontSize: 14, color: c.onSurface },
+  clientItemPhone: { fontFamily: fonts.mono, fontSize: 11, color: c.muted, marginTop: 2 },
+  clientItemCount: { fontFamily: fonts.monoMedium, fontSize: 11, color: c.muted },
+  selectedClient: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 2, borderColor: c.brandPrimary, paddingHorizontal: 12, paddingVertical: 12 },
+  selName: { fontFamily: fonts.monoMedium, fontSize: 15, color: c.onSurface },
+  selMeta: { fontFamily: fonts.mono, fontSize: 11, color: c.muted, marginTop: 2 },
+  dupWarn: { borderWidth: 1, borderColor: c.negative, backgroundColor: c.error, padding: 12, gap: 6 },
+  dupText: { fontFamily: fonts.mono, fontSize: 13, color: c.onError },
+  dupLink: { fontFamily: fonts.monoMedium, fontSize: 13, color: c.onSurface, textDecorationLine: "underline" },
   pickRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   pick: { borderWidth: 1, borderColor: c.borderStrong, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: c.surface },
   pickActive: { backgroundColor: c.brandPrimary },

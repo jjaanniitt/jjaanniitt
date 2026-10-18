@@ -7,6 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import re
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional, Dict
@@ -613,6 +614,12 @@ async def create_client(collab_id: str, body: ClientCreate, user=Depends(current
     collab = await db.collaborators.find_one({"id": collab_id, "deleted_at": None})
     if not collab:
         raise HTTPException(status_code=404, detail="Colaborator negasit")
+    existing = await db.clients.find_one({
+        "collaborator_id": collab_id, "deleted_at": None,
+        "name": {"$regex": f"^{re.escape(body.name.strip())}$", "$options": "i"},
+    })
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Clientul \"{existing['name']}\" exista deja")
     doc = {"id": new_id(), "collaborator_id": collab_id, "collaborator_name": collab["name"],
            "name": body.name.strip(), "phone": body.phone or "", "notes": body.notes or "",
            "created_at": now_iso(), "deleted_at": None}
