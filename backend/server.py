@@ -262,12 +262,16 @@ class ClientCreate(BaseModel):
     name: str
     phone: Optional[str] = ""
     notes: Optional[str] = ""
+    cui: Optional[str] = ""
+    address: Optional[str] = ""
 
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     notes: Optional[str] = None
+    cui: Optional[str] = None
+    address: Optional[str] = None
 
 
 class StockAdjust(BaseModel):
@@ -847,6 +851,7 @@ async def create_client(collab_id: str, body: ClientCreate, user=Depends(current
     doc = {"id": new_id(), "collaborator_id": collab_id, "collaborator_name": collab["name"],
            "organization_id": org_id_of(user),
            "name": body.name.strip(), "phone": body.phone or "", "notes": body.notes or "",
+           "cui": body.cui or "", "address": body.address or "",
            "created_at": now_iso(), "deleted_at": None}
     await db.clients.insert_one(doc)
     doc.pop("_id", None)
@@ -882,6 +887,10 @@ async def update_client(client_id: str, body: ClientUpdate, user=Depends(current
         sets["phone"] = body.phone.strip()
     if body.notes is not None:
         sets["notes"] = body.notes.strip()
+    if body.cui is not None:
+        sets["cui"] = body.cui.strip()
+    if body.address is not None:
+        sets["address"] = body.address.strip()
     if sets:
         await db.clients.update_one({"id": client_id}, {"$set": sets})
         # keep client_name on existing orders in sync
@@ -1084,6 +1093,167 @@ async def delete_order(order_id: str, user=Depends(current_user)):
             stock[ln["product_id"]] = stock.get(ln["product_id"], 0) + ln["qty"]
         await db.collaborators.update_one({"id": collab["id"]}, {"$set": {"stock": stock}})
     await db.orders.update_one({"id": order_id}, {"$set": {"deleted_at": now_iso()}})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Company fiscal profile + Invoicing (facturare stil Oblio)
+# ---------------------------------------------------------------------------
+class CompanyUpdate(BaseModel):
+    name: Optional[str] = None
+    cui: Optional[str] = None
+    reg_com: Optional[str] = None
+    address: Optional[str] = None
+    iban: Optional[str] = None
+    bank: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    invoice_series: Optional[str] = None
+
+
+@api_router.get("/company")
+async def get_company(user=Depends(current_user)):
+    org = await get_org(user)
+    comp = dict(org.get("company", {}))
+    comp["invoice_series"] = org.get("invoice_series", "NODE")
+    return comp
+
+
+@api_router.put("/company")
+async def update_company(body: CompanyUpdate, user=Depends(require_parent)):
+    org = await get_org(user)
+    comp = dict(org.get("company", {}))
+    sets = {}
+    for k in ("name", "cui", "reg_com", "address", "iban", "bank", "phone", "email"):
+        v = getattr(body, k)
+        if v is not None:
+            comp[k] = v.strip()
+    sets["company"] = comp
+    if body.invoice_series is not None:
+        sets["invoice_series"] = body.invoice_series.strip() or "NODE"
+    await db.organizations.update_one({"id": org_id_of(user)}, {"$set": sets})
+    out = dict(comp)
+    out["invoice_series"] = sets.get("invoice_series", org.get("invoice_series", "NODE"))
+    return out
+
+
+async def next_invoice_no(org_id: str, series: str) -> int:
+    doc = await db.counters.find_one_and_update(
+        {"id": f"invoice:{org_id}:{series}"}, {"$inc": {"value": 1}}, upsert=True, return_document=True
+    )
+    return doc["value"] if doc and "value" in doc else 1
+
+
+class InvoiceCreate(BaseModel):
+    order_id: Optional[str] = None
+    client_id: Optional[str] = None
+    vat_rate: int = 19
+    issue_date: Optional[str] = None
+    due_days: int = 15
+
+
+def _vat_split(gross: float, rate: int):
+    net = round(gross / (1 + rate / 100.0), 2)
+    vat = round(gross - net, 2)
+    return net, vat
+
+
+@api_router.get("/invoices")
+async def list_invoices(user=Depends(current_user)):
+    inv = await db.invoices.find(data_query(user), {"_id": 0}).sort("created_at", -1).to_list(5000)
+    return inv
+
+
+@api_router.get("/invoices/summary")
+async def invoices_summary(user=Depends(current_user)):
+    inv = await db.invoices.find(data_query(user), {"_id": 0}).to_list(5000)
+    month = _month_key()
+    m_inv = [i for i in inv if (i.get("issue_date") or "")[:7] == month]
+    billed = sum(i["gross"] for i in inv)
+    collected = sum(i.get("paid", 0) for i in inv)
+    return {
+        "count": len(inv), "billed_total": billed, "collected_total": collected,
+        "outstanding_total": billed - collected,
+        "billed_month": sum(i["gross"] for i in m_inv),
+        "vat_month": sum(i["vat"] for i in m_inv),
+        "unpaid_count": sum(1 for i in inv if i.get("status") != "Platita"),
+    }
+
+
+@api_router.get("/invoices/{invoice_id}")
+async def get_invoice(invoice_id: str, user=Depends(current_user)):
+    inv = await db.invoices.find_one(data_query(user, {"id": invoice_id}), {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura negasita")
+    return inv
+
+
+@api_router.post("/invoices")
+async def create_invoice(body: InvoiceCreate, user=Depends(current_user)):
+    org = await get_org(user)
+    if not body.order_id:
+        raise HTTPException(status_code=400, detail="Lipseste comanda")
+    order = await db.orders.find_one(data_query(user, {"id": body.order_id}))
+    if not order:
+        raise HTTPException(status_code=404, detail="Comanda negasita")
+    existing = await db.invoices.find_one({"order_id": body.order_id, "organization_id": org_id_of(user), "deleted_at": None})
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Comanda are deja factura {existing['number_full']}")
+    client = await db.clients.find_one({"id": order["client_id"]}, {"_id": 0})
+    rate = body.vat_rate if body.vat_rate in (0, 5, 9, 19) else 19
+    gross = float(order["total"])
+    net, vat = _vat_split(gross, rate)
+    lines = []
+    for ln in order["lines"]:
+        l_net, l_vat = _vat_split(float(ln["subtotal"]), rate)
+        lines.append({"label": ln["label"], "qty": ln["qty"], "unit_price": ln["price"],
+                      "gross": ln["subtotal"], "net": l_net, "vat": l_vat})
+    series = org.get("invoice_series", "NODE")
+    number = await next_invoice_no(org_id_of(user), series)
+    issue = (body.issue_date or now_iso())[:10]
+    due = (datetime.fromisoformat(issue) + timedelta(days=max(0, body.due_days))).strftime("%Y-%m-%d")
+    paid = float(order.get("paid", 0))
+    status = "Platita" if paid >= gross else ("Partial" if paid > 0 else "Emisa")
+    doc = {
+        "id": new_id(), "organization_id": org_id_of(user),
+        "collaborator_id": order["collaborator_id"], "collaborator_name": order.get("collaborator_name", ""),
+        "order_id": order["id"], "order_no": order.get("document_no", ""),
+        "series": series, "number": number, "number_full": f"{series}-{number:04d}",
+        "issue_date": issue, "due_date": due, "vat_rate": rate,
+        "client_id": order["client_id"], "client_name": order["client_name"],
+        "client_cui": (client or {}).get("cui", ""), "client_address": (client or {}).get("address", ""),
+        "company": org.get("company", {}),
+        "lines": lines, "gross": gross, "net": net, "vat": vat,
+        "paid": paid, "payments": list(order.get("payments", [])),
+        "status": status, "created_at": now_iso(), "deleted_at": None,
+    }
+    await db.invoices.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.post("/invoices/{invoice_id}/payments")
+async def invoice_payment(invoice_id: str, body: PaymentCreate, user=Depends(current_user)):
+    inv = await db.invoices.find_one(data_query(user, {"id": invoice_id}))
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura negasita")
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="Suma trebuie sa fie pozitiva")
+    remaining = inv["gross"] - inv.get("paid", 0)
+    if remaining <= 0:
+        raise HTTPException(status_code=400, detail="Factura este deja incasata")
+    amount = min(body.amount, remaining)
+    paid = inv.get("paid", 0) + amount
+    payments = list(inv.get("payments", []))
+    payments.append({"amount": amount, "date": now_iso(), "note": body.note or ""})
+    status = "Platita" if paid >= inv["gross"] else "Partial"
+    await db.invoices.update_one({"id": invoice_id}, {"$set": {"paid": paid, "payments": payments, "status": status}})
+    return await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
+
+
+@api_router.delete("/invoices/{invoice_id}")
+async def delete_invoice(invoice_id: str, user=Depends(require_parent)):
+    await db.invoices.update_one({"id": invoice_id, "organization_id": org_id_of(user)}, {"$set": {"deleted_at": now_iso()}})
     return {"ok": True}
 
 

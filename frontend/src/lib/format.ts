@@ -5,6 +5,10 @@ export function formatRON(n: number): string {
   return `${v.toLocaleString("ro-RO")} RON`;
 }
 
+export function formatRON2(n: number): string {
+  return `${(n ?? 0).toLocaleString("ro-RO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RON`;
+}
+
 export function formatDate(iso?: string | null): string {
   if (!iso) return "—";
   return dayjs(iso).format("DD.MM.YYYY");

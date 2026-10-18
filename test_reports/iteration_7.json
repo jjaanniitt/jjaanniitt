@@ -1,0 +1,49 @@
+{
+  "summary": "Phase 3 — Invoicing (stil Oblio) + Company fiscal profile tested end-to-end. New file /app/backend/tests/test_iter7_invoicing.py (13 tests, 13/13 PASS) covers: GET /api/company (returns fields + invoice_series default 'NODE'), PUT /api/company parent-only update of fiscal fields and series (partner -> 403), POST /api/invoices from an order with vat_rate=19 producing correct VAT split (gross 200 -> net 168.07 vat 31.93; also validated for arbitrary gross with +-0.02 tolerance), number_full format {series}-NNNN, duplicate invoice for same order -> 409, GET /api/invoices (scoped), GET /api/invoices/{id}, GET /api/invoices/summary (billed_total/outstanding_total/vat_month/unpaid_count shape), POST /api/invoices/{id}/payments partial -> status 'Partial' then full-pay -> 'Platita' with overpay clamped to remaining, extra payment on paid invoice -> 400, DELETE parent-only (partner -> 403, parent -> soft delete + no longer in list), partner cannot PUT /api/company. Frontend (390x844 mobile Expo web preview): login as parent, Dashboard shows dash-billing FACTURARE card with FACTURAT/DE INCASAT/TVA LUNA KPIs, tap routes to /facturi list screen showing inv-billed KPI header; open-account on dashboard header opens /cont which exposes open-depozit, open-facturi, open-company (parent). open-company routes to /setari-firma with full form fields co-name/co-cui/co-regcom/co-address/co-iban/co-bank/co-phone/co-series + save-company button — form filled and saved successfully. Opened a real finalized order detail, make-invoice-button generated invoice NODE-0001 and routed to /factura/{id}; invoice detail renders lines with 'label × qty' + value, Baza impozabila (571 RON), TVA 19% (109 RON), TOTAL (680 RON), Incasat/De incasat; collect-invoice modal opened with pay-amount-input + confirm-pay — paid 10 RON and status flipped 'Emisa' -> 'Partial'; export-invoice-pdf (header icon) and download-invoice-pdf (bottom button) present (PDF via expo-print is native-only; on web buttons exist and did not crash). /facturi list now showed the generated invoice-row-{id}. Dark navy theme renders cleanly, NO red screen, only expected non-critical Expo web warnings (useNativeDriver fallback, props.pointerEvents deprecation — benign). CLEANUP VERIFIED via Mongo: invoice counter 'invoice:{org}:NODE' deleted; company fiscal fields emptied (email=detergentzilnic@gmail.com kept, invoice_series=NODE); 0 invoices in DB; 0 @test.ro users; 0 TEST_ orders/clients/consignments/receptions; central_stock total=0; MOD SHOP total unchanged by test (287 reflects pre-test state); 18 products intact. User's first real invoice will correctly be NODE-0001.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter7_invoicing.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "(Non-blocking, polish) factura/[id].tsx displays Baza/TVA formatted via formatRON which rounds to whole RON for display (680 -> 'Baza 571 RON / TVA 109 RON'). The underlying invoice doc has exact net/vat (e.g. 571.43/108.57) and backend summary + vat_month uses the exact values — only cosmetic rounding on screen. If invoice legal document fidelity is required, format Baza/TVA with 2 decimals in factura/[id].tsx lines 78-79 (currently formatRON(data.net)/formatRON(data.vat)).",
+    "(Nit) create_invoice stamps invoice.status based on the ORDER's paid amount at generation time (so an unpaid finalized order with paid=0 produces 'Emisa'; a paid-in-full order produces 'Platita'). This means the invoice does not require the order to be in Finalizat status — any non-deleted order works. If product intent is 'only Finalizat orders can be invoiced', add a status guard in POST /api/invoices (server.py line 1196-1201).",
+    "(Observation only, no change needed) /facturi screen uses invoice-row-{id} testID — pattern matches review request."
+  ],
+  "critical_code_review_comments": [
+    "server.py line 1140-1144 next_invoice_no uses find_one_and_update with $inc + upsert + ReturnDocument.AFTER — correctly produces strictly increasing per-org per-series numbers; verified by test_create_invoice_from_order_split_19 producing NODE-0001.",
+    "server.py line 1155-1158 _vat_split rounds net via round(gross/(1+rate/100),2) and derives vat = gross - net, guaranteeing net+vat == gross even after rounding — correct Romanian GROSS-to-NET convention.",
+    "server.py line 1199-1201 duplicate guard scopes on {order_id, organization_id, deleted_at:None} — soft-deleted invoice allows re-invoicing the same order; test_duplicate_invoice_409 and test_parent_can_delete_invoice both green.",
+    "server.py line 1225 invoice stores a SNAPSHOT of org.company dict at creation time — client sees frozen fiscal data even if company fields change later. Correct for legal docs.",
+    "server.py line 1245 payment amount clamped via min(body.amount, remaining) — prevents overpayment, verified.",
+    "server.py line 1256 DELETE is a soft delete (sets deleted_at); scoped by organization_id. Parent-only via require_parent dependency — partner gets 403.",
+    "server.py now 1373 lines — same recommendation as iter4/5/6: split into routers (auth, products, collaborators, orders, dashboard, invoicing).",
+    "frontend factura/[id].tsx line 109 uses regex v.replace(/[^0-9.]/g,'') for pay-amount-input — allows multiple decimal dots (e.g. '1.2.3'). Minor; parseFloat still works but user could type invalid chars. Low priority.",
+    "frontend setari-firma.tsx wires PUT /api/company via useMutation — form fields all have testIDs matching spec; good.",
+    "frontend (tabs)/index.tsx line 118-131 renders dash-billing only when billQ.data is truthy; silently absent when query errors — consider skeleton/loader for first load. Minor.",
+    "All text wrapped in <Text>, no raw strings, StyleSheet via makeStyles, no HTML tags detected. No deprecated expo packages (expo-av/expo-barcode-scanner/expo-background-fetch) in the Phase-3 code paths."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter7_invoicing.py (new, 13 tests for Phase 3 invoicing + cleanup fixture)",
+    "/app/test_reports/pytest/iter7_results.xml",
+    "/app/test_reports/iteration_7.json"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13 on test_iter7_invoicing.py)",
+    "frontend": "100% — all target testIDs validated: dash-billing (dashboard), inv-billed (facturi header), invoice-row-{id} (facturi list), open-facturi/open-depozit/open-company (cont), co-name/co-cui/co-regcom/co-address/co-iban/co-bank/co-phone/co-series/save-company (setari-firma), make-invoice-button (comanda detail), export-invoice-pdf/download-invoice-pdf/collect-invoice/pay-amount-input/confirm-pay (factura detail). Status transition 'Emisa' -> 'Partial' confirmed in UI."
+  },
+  "seed_data_creation": "Transient only — all throwaway data removed in test_zzzz_final_cleanup via Motor, plus a final direct-Mongo cleanup after the UI invoice test. Verified post-cleanup: 0 invoices, 0 @test.ro users, 0 TEST_ orders/clients/consignments/receptions, 0 invoice counters (so next real invoice will be NODE-0001), company fiscal fields empty (email=detergentzilnic@gmail.com retained), invoice_series='NODE', central_stock total=0, 18 products, MOD SHOP intact.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run `cd /app && python -m pytest backend/tests/test_iter7_invoicing.py -v -n 0 -p no:randomly` for the Phase 3 suite (requires sequential execution; the suite uses a module-level _state dict to share the created invoice id between TestInvoiceCreate -> TestInvoiceList -> TestInvoicePayments -> TestInvoiceDelete, so parallel/-n auto will break it). Fixtures of interest: parent_token, parent_me, mod_shop, test_order (creates TEST_Client_INV + 'In asteptare' order with ~200 RON gross; status 'In asteptare' is important so invoice starts as 'Emisa' and partial-payment test can transition through 'Partial' -> 'Platita'), partner_token (via invite flow on MOD SHOP). Important testIDs for Phase 3 UI: dash-billing (dashboard), inv-billed (facturi), invoice-row-<id>, open-facturi/open-company/open-depozit (cont), co-name/co-cui/co-regcom/co-address/co-iban/co-bank/co-phone/co-series/save-company (setari-firma), make-invoice-button (comanda/[id]), export-invoice-pdf/download-invoice-pdf/collect-invoice/pay-amount-input/confirm-pay (factura/[id]). The /api/clients route does NOT exist — clients are created via POST /api/collaborators/{collab_id}/clients. The /api/orders POST uses the stored product price, NOT the price passed in the request body — picking a product with price=100 and qty=2 is the cleanest way to hit gross=200 for a textbook 168.07/31.93 VAT assertion. Parent credentials: detergentzilnic@gmail.com / Zilnic2026!.",
+  "rca_of_issue": "N/A — Phase 3 invoicing (backend + frontend) verified cleanly, no bugs found. Minor cosmetic rounding on invoice detail Baza/TVA display noted under action_items as polish only; backend persists exact values."
+}

@@ -1,6 +1,6 @@
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import { formatRON, formatDate } from "@/src/lib/format";
+import { formatRON, formatRON2, formatDate } from "@/src/lib/format";
 
 const CSS = `
   * { font-family: 'Courier New', monospace; color: #111; box-sizing: border-box; }
@@ -50,6 +50,45 @@ export async function exportCollaboratorPdf(c: any) {
     <table><tr><th>Produs</th><th>Pret</th><th>Stoc</th></tr>${stockRows}</table>
     <h1 style="font-size:14px">COMENZI</h1>
     <table><tr><th>Document</th><th>Client</th><th>Data</th><th>Total</th><th>Status</th></tr>${orderRows || '<tr><td colspan="5">Nicio comanda</td></tr>'}</table>
+  `;
+  await render(html);
+}
+
+export async function exportInvoicePdf(inv: any) {
+  const co = inv.company || {};
+  const lines = (inv.lines || [])
+    .map((l: any, i: number) => `<tr><td>${i + 1}</td><td>${l.label}</td><td class="num">${l.qty}</td><td class="num">${formatRON2(l.net / l.qty)}</td><td class="num">${inv.vat_rate}%</td><td class="num">${formatRON2(l.gross)}</td></tr>`)
+    .join("");
+  const html = `
+    <div style="display:flex;justify-content:space-between;">
+      <div>
+        <h1>FACTURA ${inv.number_full}</h1>
+        <div class="sub">Data: ${formatDate(inv.issue_date)} · Scadenta: ${formatDate(inv.due_date)}</div>
+      </div>
+      <div style="text-align:right;font-size:11px;">
+        <strong>${co.name || "—"}</strong><br/>
+        ${co.cui ? "CUI " + co.cui + "<br/>" : ""}
+        ${co.reg_com ? co.reg_com + "<br/>" : ""}
+        ${co.address || ""}<br/>
+        ${co.iban ? "IBAN " + co.iban + "<br/>" : ""}
+        ${co.bank || ""}
+      </div>
+    </div>
+    <div style="border:1px solid #111;padding:10px;margin-bottom:16px;font-size:11px;">
+      <strong>Client:</strong> ${inv.client_name}
+      ${inv.client_cui ? " · CUI " + inv.client_cui : ""}
+      ${inv.client_address ? "<br/>" + inv.client_address : ""}
+    </div>
+    <table>
+      <tr><th>#</th><th>Produs</th><th>Cant.</th><th>Pret unit. (fara TVA)</th><th>TVA</th><th>Total</th></tr>
+      ${lines}
+    </table>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Baza impozabila</div><div class="val">${formatRON2(inv.net)}</div></div>
+      <div class="kpi"><div class="label">TVA ${inv.vat_rate}%</div><div class="val">${formatRON2(inv.vat)}</div></div>
+      <div class="kpi"><div class="label">Total de plata</div><div class="val">${formatRON2(inv.gross)}</div></div>
+      <div class="kpi"><div class="label">Incasat</div><div class="val">${formatRON2(inv.paid || 0)}</div></div>
+    </div>
   `;
   await render(html);
 }

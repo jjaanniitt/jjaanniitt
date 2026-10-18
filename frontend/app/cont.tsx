@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { Camera, SignOut, Crown, CaretRight, User, Package } from "phosphor-react-native";
+import { Camera, SignOut, Crown, CaretRight, User, Package, Receipt, Buildings } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Card } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
@@ -84,6 +84,26 @@ export default function Cont() {
             <View style={{ flex: 1 }}>
               <Text style={s.planLabel}>STOC</Text>
               <Text style={s.planName}>Depozit central</Text>
+            </View>
+            <CaretRight size={18} color={colors.muted} />
+          </Pressable>
+        ) : null}
+
+        <Pressable style={s.navCard} onPress={() => router.push("/facturi")} testID="open-facturi">
+          <Receipt size={22} color={colors.onSurface} weight="fill" />
+          <View style={{ flex: 1 }}>
+            <Text style={s.planLabel}>FACTURARE</Text>
+            <Text style={s.planName}>Facturi</Text>
+          </View>
+          <CaretRight size={18} color={colors.muted} />
+        </Pressable>
+
+        {role === "parent" ? (
+          <Pressable style={s.navCard} onPress={() => router.push("/setari-firma")} testID="open-company">
+            <Buildings size={22} color={colors.onSurface} weight="fill" />
+            <View style={{ flex: 1 }}>
+              <Text style={s.planLabel}>FACTURARE</Text>
+              <Text style={s.planName}>Date firma (apar pe facturi)</Text>
             </View>
             <CaretRight size={18} color={colors.muted} />
           </Pressable>

@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { Trash, X, PencilSimple, Coins } from "phosphor-react-native";
+import { Trash, X, PencilSimple, Coins, Receipt } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Field, StatusBadge } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
@@ -49,6 +49,12 @@ export default function ComandaDetail() {
   const remove = useMutation({
     mutationFn: () => api(`/orders/${id}`, { method: "DELETE" }),
     onSuccess: () => { invalidateAll(); setConfirm(false); toast("Comanda stearsa", "success"); router.back(); },
+    onError: (e: any) => toast(e.message || "Eroare", "error"),
+  });
+
+  const makeInvoice = useMutation({
+    mutationFn: () => api<any>("/invoices", { method: "POST", body: { order_id: id, vat_rate: 19 } }),
+    onSuccess: (inv: any) => { toast(`Factura ${inv.number_full} generata`, "success"); router.push(`/factura/${inv.id}`); },
     onError: (e: any) => toast(e.message || "Eroare", "error"),
   });
 
@@ -124,6 +130,13 @@ export default function ComandaDetail() {
             testID="collect-payment-button"
           />
         ) : null}
+        <Btn
+          title="Genereaza factura"
+          onPress={() => makeInvoice.mutate()}
+          loading={makeInvoice.isPending}
+          icon={<Receipt size={18} color={colors.onBrandPrimary} weight="bold" />}
+          testID="make-invoice-button"
+        />
         <Btn
           title="Editeaza comanda"
           variant="secondary"

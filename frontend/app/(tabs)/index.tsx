@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
-import { Warning, TrendUp, Gear, ChartBar, CaretRight, UserCircle } from "phosphor-react-native";
+import { Warning, TrendUp, Gear, ChartBar, CaretRight, UserCircle, Receipt } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Card, Field } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
@@ -24,6 +24,8 @@ export default function Dashboard() {
     queryFn: () => api<any>(`/dashboard?period=${period}`),
   });
   useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
+
+  const billQ = useQuery({ queryKey: ["invoices-summary"], queryFn: () => api<any>("/invoices/summary") });
 
   const saveThreshold = useMutation({
     mutationFn: () => api("/settings", { method: "PUT", body: { low_stock_threshold: parseInt(threshold || "0", 10) } }),
@@ -112,6 +114,21 @@ export default function Dashboard() {
               <Text style={s.reportText}>RAPOARTE LUNARE</Text>
               <CaretRight size={18} color={colors.muted} />
             </Pressable>
+
+            {billQ.data ? (
+              <Pressable style={s.billCard} onPress={() => router.push("/facturi")} testID="dash-billing">
+                <View style={s.billHead}>
+                  <Receipt size={18} color={colors.onSurface} weight="fill" />
+                  <Text style={s.sectionLabel}>FACTURARE</Text>
+                  <CaretRight size={16} color={colors.muted} style={{ marginLeft: "auto" }} />
+                </View>
+                <View style={s.billRow}>
+                  <View style={s.billKpi}><Text style={s.billVal}>{formatRON(billQ.data.billed_total)}</Text><Text style={s.billLabel}>FACTURAT</Text></View>
+                  <View style={s.billKpi}><Text style={s.billVal}>{formatRON(billQ.data.outstanding_total)}</Text><Text style={s.billLabel}>DE INCASAT</Text></View>
+                  <View style={s.billKpi}><Text style={s.billVal}>{formatRON(billQ.data.vat_month)}</Text><Text style={s.billLabel}>TVA LUNA</Text></View>
+                </View>
+              </Pressable>
+            ) : null}
 
             {data.by_category && data.by_category.length > 0 ? (
               <>
@@ -234,6 +251,12 @@ const useStyles = makeStyles((c) => ({
   lowQty: { fontFamily: fonts.monoMedium, fontSize: 13, color: c.onWarning },
   reportBtn: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: c.borderStrong, padding: 16, backgroundColor: c.surface },
   reportText: { flex: 1, fontFamily: fonts.monoMedium, fontSize: 13, letterSpacing: 0.5, color: c.onSurface },
+  billCard: { borderWidth: 1, borderColor: c.borderStrong, padding: 16, backgroundColor: c.surfaceSecondary, gap: 12 },
+  billHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  billRow: { flexDirection: "row", gap: 12 },
+  billKpi: { flex: 1 },
+  billVal: { fontFamily: fonts.monoMedium, fontSize: 15, color: c.onSurface },
+  billLabel: { fontFamily: fonts.mono, fontSize: 9, letterSpacing: 1, color: c.muted, marginTop: 4 },
   gear: { width: 36, height: 36, borderWidth: 1, borderColor: c.borderStrong, alignItems: "center", justifyContent: "center" },
   backdrop: { flex: 1, backgroundColor: "rgba(17,17,17,0.6)", justifyContent: "flex-end" },
   sheet: { backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.borderStrong, padding: 20, gap: 14 },
