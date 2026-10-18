@@ -40,6 +40,7 @@ Aplicatie mobila de logistica (consignatie) pentru distribuitor de detergenti. F
 - [~] FAZA 2: Dashboard imbogatit — KPI-uri + card FACTURARE (facturat/de incasat/TVA luna); grafice/tabele avansate PIMS raman de extins
 - [x] FAZA 3: Facturare stil Oblio — profil firma, facturi din comanda, TVA, incasare partiala, PDF (model Oblio), editare/stergere factura
 - [x] INTEGRARE OBLIO: conectare cont Oblio (email+API secret+CIF+serie) in Date firma; buton „Emite in Oblio" pe factura -> emite in contul Oblio al userului si deschide PDF-ul (token cache, per-organizatie). Netestat live (necesita credentiale reale Oblio de la user).
+- [x] AUTOCOMPLETARE CUI: buton „Preia date după CUI" in Date firma -> completeaza automat denumire/adresa/reg.com/telefon. Sursa: ANAF v9 (merge din IP permis, productie RO) cu fallback VIES (UE, fara cheie, doar platitori TVA). ANAF e blocat din preview (401 IP), VIES merge.
 
 ## Backlog
 - P1: Plata reala in-app (RevenueCat) la publicare

@@ -1099,6 +1099,47 @@ async def delete_order(order_id: str, user=Depends(current_user)):
 # ---------------------------------------------------------------------------
 # Company fiscal profile + Invoicing (facturare stil Oblio)
 # ---------------------------------------------------------------------------
+@api_router.get("/lookup/cui")
+async def lookup_cui(cui: str, user=Depends(current_user)):
+    clean = re.sub(r"\D", "", cui or "")
+    if not clean:
+        raise HTTPException(status_code=400, detail="CUI invalid")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # 1) ANAF (bogat: denumire, adresa, nrRegCom, telefon) — merge din IP-uri permise (productie RO)
+    try:
+        r = requests.post("https://webservice.anaf.ro/PlatitorTvaRest/api/v9/ws/tva",
+                          json=[{"cui": int(clean), "data": today}],
+                          headers={"Content-Type": "application/json"}, timeout=8)
+        if r.status_code == 200:
+            found = (r.json() or {}).get("found") or []
+            if found:
+                g = found[0].get("date_generale", {}) or {}
+                tva = found[0].get("inregistrare_scopTva", {}) or {}
+                if g.get("denumire"):
+                    is_vat = bool(tva.get("scpTVA"))
+                    return {"name": g.get("denumire", "").strip(),
+                            "address": g.get("adresa", "").strip(),
+                            "reg_com": g.get("nrRegCom", "").strip(),
+                            "phone": g.get("telefon", "").strip(),
+                            "cui": ("RO" + clean) if is_vat else clean,
+                            "vat_payer": is_vat, "source": "ANAF"}
+    except Exception:
+        pass
+    # 2) VIES (UE, fara cheie, din orice IP) — doar firme platitoare de TVA
+    try:
+        r = requests.get(f"https://ec.europa.eu/taxation_customs/vies/rest-api/ms/RO/vat/{clean}", timeout=12)
+        if r.status_code == 200:
+            d = r.json()
+            if d.get("isValid") and d.get("name") and d.get("name") != "---":
+                return {"name": d.get("name", "").strip(),
+                        "address": (d.get("address") or "").replace("\n", ", ").strip(),
+                        "reg_com": "", "phone": "", "cui": "RO" + clean,
+                        "vat_payer": True, "source": "VIES"}
+    except Exception:
+        pass
+    raise HTTPException(status_code=404, detail="Firma negasita dupa CUI (sau nu e platitoare de TVA)")
+
+
 class CompanyUpdate(BaseModel):
     name: Optional[str] = None
     cui: Optional[str] = None

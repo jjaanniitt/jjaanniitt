@@ -3,14 +3,16 @@ import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
+import { MagnifyingGlass } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Field } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { api } from "@/src/api/client";
-import { makeStyles, fonts } from "@/src/theme";
+import { makeStyles, fonts, useTheme } from "@/src/theme";
 
 export default function SetariFirma() {
   const s = useStyles();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const toast = useToast();
@@ -32,6 +34,22 @@ export default function SetariFirma() {
 
   const set = (k: string) => (v: string) => setF((p: any) => ({ ...p, [k]: v }));
 
+  const lookup = useMutation({
+    mutationFn: () => api<any>(`/lookup/cui?cui=${encodeURIComponent((f.cui || "").trim())}`),
+    onSuccess: (d: any) => {
+      setF((p: any) => ({
+        ...p,
+        name: d.name || p.name,
+        address: d.address || p.address,
+        reg_com: d.reg_com || p.reg_com,
+        phone: d.phone || p.phone,
+        cui: d.cui || p.cui,
+      }));
+      toast(`Date preluate (${d.source})`, "success");
+    },
+    onError: (e: any) => toast(e.message || "Firma negasita", "error"),
+  });
+
   return (
     <View style={s.root}>
       <AppHeader title="Date firma" subtitle="Apar pe facturi" onBack={() => router.back()} />
@@ -39,6 +57,7 @@ export default function SetariFirma() {
         <Text style={s.hint}>Aceste date apar pe toate facturile generate.</Text>
         <Field label="Denumire firma" value={f.name} onChangeText={set("name")} placeholder="ex. Node Distributie SRL" testID="co-name" />
         <Field label="CUI" value={f.cui} onChangeText={set("cui")} placeholder="ex. RO12345678" testID="co-cui" />
+        <Btn title="Preia date după CUI" variant="outline" onPress={() => (f.cui || "").trim() ? lookup.mutate() : toast("Introdu CUI-ul", "error")} loading={lookup.isPending} icon={<MagnifyingGlass size={18} color={colors.onSurface} weight="bold" />} testID="lookup-cui" />
         <Field label="Nr. Reg. Comertului" value={f.reg_com} onChangeText={set("reg_com")} placeholder="ex. J40/123/2020" testID="co-regcom" />
         <Field label="Adresa" value={f.address} onChangeText={set("address")} placeholder="Strada, oras, judet" testID="co-address" />
         <Field label="IBAN" value={f.iban} onChangeText={set("iban")} placeholder="RO49..." testID="co-iban" />
