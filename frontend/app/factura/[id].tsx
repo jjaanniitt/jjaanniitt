@@ -120,8 +120,14 @@ export default function FacturaDetail() {
         </View>
 
         <View style={s.totals}>
-          <View style={s.totRow}><Text style={s.totLabel}>Baza impozabila</Text><Text style={s.totVal}>{formatRON2(data.net)}</Text></View>
-          <View style={s.totRow}><Text style={s.totLabel}>TVA {data.vat_rate}%</Text><Text style={s.totVal}>{formatRON2(data.vat)}</Text></View>
+          {data.vat_rate === 0 ? (
+            <View style={s.totRow}><Text style={s.totLabel}>Regim TVA</Text><Text style={s.totVal}>Fără TVA (neplătitor)</Text></View>
+          ) : (
+            <>
+              <View style={s.totRow}><Text style={s.totLabel}>Baza impozabila</Text><Text style={s.totVal}>{formatRON2(data.net)}</Text></View>
+              <View style={s.totRow}><Text style={s.totLabel}>TVA {data.vat_rate}%</Text><Text style={s.totVal}>{formatRON2(data.vat)}</Text></View>
+            </>
+          )}
           <View style={[s.totRow, s.totFinal]}><Text style={s.totLabelBig}>TOTAL</Text><Text style={s.totValBig}>{formatRON2(data.gross)}</Text></View>
           <View style={s.totRow}><Text style={s.totLabel}>Incasat</Text><Text style={[s.totVal, { color: colors.positive }]}>{formatRON2(data.paid || 0)}</Text></View>
           <View style={s.totRow}><Text style={s.totLabel}>De incasat</Text><Text style={[s.totVal, remaining > 0 && { color: colors.negative }]}>{formatRON2(remaining)}</Text></View>

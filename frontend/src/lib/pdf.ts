@@ -145,8 +145,10 @@ export async function exportInvoicePdf(inv: any) {
         <tbody>${lines}</tbody>
       </table>
       <div class="totals"><div class="tbox">
-        <div class="trow base"><span>Bază impozabilă</span><span>${formatRON2(inv.net)}</span></div>
-        <div class="trow base"><span>TVA ${inv.vat_rate}%</span><span>${formatRON2(inv.vat)}</span></div>
+        ${inv.vat_rate === 0
+          ? `<div class="trow base"><span>Regim TVA</span><span>Fără TVA (neplătitor)</span></div>`
+          : `<div class="trow base"><span>Bază impozabilă</span><span>${formatRON2(inv.net)}</span></div>
+             <div class="trow base"><span>TVA ${inv.vat_rate}%</span><span>${formatRON2(inv.vat)}</span></div>`}
         <div class="grand"><span>TOTAL DE PLATĂ</span><span>${formatRON2(inv.gross)}</span></div>
         ${(inv.paid || 0) > 0 ? `<div class="trow"><span>Încasat</span><span>${formatRON2(inv.paid)}</span></div>
         <div class="trow"><span>Rest de plată</span><span>${formatRON2(inv.gross - (inv.paid || 0))}</span></div>` : ""}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -18,7 +18,7 @@ export default function SetariFirma() {
   const toast = useToast();
 
   const { data } = useQuery({ queryKey: ["company"], queryFn: () => api<any>("/company") });
-  const [f, setF] = useState<any>({ name: "", cui: "", reg_com: "", address: "", iban: "", bank: "", phone: "", email: "", invoice_series: "NODE" });
+  const [f, setF] = useState<any>({ name: "", cui: "", reg_com: "", address: "", iban: "", bank: "", phone: "", email: "", invoice_series: "NODE", vat_payer: true });
 
   useEffect(() => { if (data) setF({ ...f, ...data }); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -44,6 +44,7 @@ export default function SetariFirma() {
         reg_com: d.reg_com || p.reg_com,
         phone: d.phone || p.phone,
         cui: d.cui || p.cui,
+        vat_payer: typeof d.vat_payer === "boolean" ? d.vat_payer : p.vat_payer,
       }));
       toast(`Date preluate (${d.source})`, "success");
     },
@@ -64,6 +65,18 @@ export default function SetariFirma() {
         <Field label="Banca" value={f.bank} onChangeText={set("bank")} placeholder="ex. Banca Transilvania" testID="co-bank" />
         <Field label="Telefon" value={f.phone} onChangeText={set("phone")} placeholder="07xx xxx xxx" keyboardType="phone-pad" testID="co-phone" />
         <Field label="Serie factura" value={f.invoice_series} onChangeText={set("invoice_series")} autoCapitalize="characters" placeholder="NODE" testID="co-series" />
+
+        <View style={s.switchRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.switchLabel}>Firmă plătitoare de TVA</Text>
+            <Text style={s.switchHint}>{f.vat_payer ? "Facturile vor avea TVA (19% implicit)" : "Facturile vor fi fără TVA (neplătitor)"}</Text>
+          </View>
+          <Switch
+            value={!!f.vat_payer}
+            onValueChange={(v) => setF((p: any) => ({ ...p, vat_payer: v }))}
+            testID="vat-payer-switch"
+          />
+        </View>
 
         <View style={s.oblioHead}>
           <Text style={s.oblioTitle}>CONECTARE OBLIO</Text>
@@ -87,6 +100,9 @@ const useStyles = makeStyles((c) => ({
   hint: { fontFamily: fonts.mono, fontSize: 12, color: c.muted, lineHeight: 18 },
   oblioHead: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10, borderTopWidth: 1, borderTopColor: c.borderStrong, paddingTop: 16 },
   oblioTitle: { fontFamily: fonts.monoMedium, fontSize: 13, letterSpacing: 1, color: c.onSurface },
+  switchRow: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: c.borderStrong, padding: 14, backgroundColor: c.surfaceSecondary },
+  switchLabel: { fontFamily: fonts.monoMedium, fontSize: 14, color: c.onSurface },
+  switchHint: { fontFamily: fonts.mono, fontSize: 11, color: c.muted, marginTop: 3 },
   badgeOn: { backgroundColor: c.success, paddingHorizontal: 8, paddingVertical: 2 },
   badgeOnText: { fontFamily: fonts.monoMedium, fontSize: 9, letterSpacing: 0.5, color: c.onSuccess },
 }));

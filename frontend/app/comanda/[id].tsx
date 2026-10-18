@@ -20,6 +20,7 @@ export default function ComandaDetail() {
   const qc = useQueryClient();
   const toast = useToast();
   const [confirm, setConfirm] = useState(false);
+  const [invModal, setInvModal] = useState(false);
   const [payModal, setPayModal] = useState(false);
   const [payAmount, setPayAmount] = useState("");
 
@@ -53,8 +54,8 @@ export default function ComandaDetail() {
   });
 
   const makeInvoice = useMutation({
-    mutationFn: () => api<any>("/invoices", { method: "POST", body: { order_id: id, vat_rate: 19 } }),
-    onSuccess: (inv: any) => { toast(`Factura ${inv.number_full} generata`, "success"); router.push(`/factura/${inv.id}`); },
+    mutationFn: (rate: number) => api<any>("/invoices", { method: "POST", body: { order_id: id, vat_rate: rate } }),
+    onSuccess: (inv: any) => { setInvModal(false); toast(`Factura ${inv.number_full} generata`, "success"); router.push(`/factura/${inv.id}`); },
     onError: (e: any) => toast(e.message || "Eroare", "error"),
   });
 
@@ -132,7 +133,7 @@ export default function ComandaDetail() {
         ) : null}
         <Btn
           title="Genereaza factura"
-          onPress={() => makeInvoice.mutate()}
+          onPress={() => setInvModal(true)}
           loading={makeInvoice.isPending}
           icon={<Receipt size={18} color={colors.onBrandPrimary} weight="bold" />}
           testID="make-invoice-button"
@@ -181,6 +182,21 @@ export default function ComandaDetail() {
             <Text style={s.confirmText}>Comanda {data.document_no} va fi stearsa iar stocul va fi returnat. Continui?</Text>
             <Btn title="Da, sterge" variant="danger" onPress={() => remove.mutate()} loading={remove.isPending} testID="confirm-delete-button" />
             <Btn title="Anuleaza" variant="outline" onPress={() => setConfirm(false)} />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={invModal} transparent animationType="fade" onRequestClose={() => setInvModal(false)}>
+        <View style={s.backdrop}>
+          <View style={s.sheet}>
+            <View style={s.sheetHead}>
+              <Text style={s.sheetTitle}>COTA TVA FACTURA</Text>
+              <Pressable onPress={() => setInvModal(false)} testID="close-inv-modal"><X size={20} color={colors.onSurface} /></Pressable>
+            </View>
+            <Btn title="Cu TVA 19%" onPress={() => makeInvoice.mutate(19)} loading={makeInvoice.isPending} testID="inv-vat-19" />
+            <Btn title="Cu TVA 9%" variant="secondary" onPress={() => makeInvoice.mutate(9)} testID="inv-vat-9" />
+            <Btn title="Cu TVA 5%" variant="secondary" onPress={() => makeInvoice.mutate(5)} testID="inv-vat-5" />
+            <Btn title="Fara TVA (neplatitor)" variant="outline" onPress={() => makeInvoice.mutate(0)} testID="inv-vat-0" />
           </View>
         </View>
       </Modal>

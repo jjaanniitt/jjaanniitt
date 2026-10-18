@@ -1150,6 +1150,7 @@ class CompanyUpdate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     invoice_series: Optional[str] = None
+    vat_payer: Optional[bool] = None
     oblio_email: Optional[str] = None
     oblio_secret: Optional[str] = None
     oblio_cif: Optional[str] = None
@@ -1161,6 +1162,7 @@ async def get_company(user=Depends(current_user)):
     org = await get_org(user)
     comp = dict(org.get("company", {}))
     comp["invoice_series"] = org.get("invoice_series", "NODE")
+    comp["vat_payer"] = org.get("company", {}).get("vat_payer", True)
     ob = org.get("oblio", {})
     comp["oblio_email"] = ob.get("email", "")
     comp["oblio_cif"] = ob.get("cif", "")
@@ -1178,6 +1180,8 @@ async def update_company(body: CompanyUpdate, user=Depends(require_parent)):
         v = getattr(body, k)
         if v is not None:
             comp[k] = v.strip()
+    if body.vat_payer is not None:
+        comp["vat_payer"] = bool(body.vat_payer)
     sets["company"] = comp
     if body.invoice_series is not None:
         sets["invoice_series"] = body.invoice_series.strip() or "NODE"
@@ -1206,7 +1210,7 @@ async def next_invoice_no(org_id: str, series: str) -> int:
 class InvoiceCreate(BaseModel):
     order_id: Optional[str] = None
     client_id: Optional[str] = None
-    vat_rate: int = 19
+    vat_rate: Optional[int] = None
     issue_date: Optional[str] = None
     due_days: int = 15
 
@@ -1259,7 +1263,9 @@ async def create_invoice(body: InvoiceCreate, user=Depends(current_user)):
     if existing:
         raise HTTPException(status_code=409, detail=f"Comanda are deja factura {existing['number_full']}")
     client = await db.clients.find_one({"id": order["client_id"]}, {"_id": 0})
-    rate = body.vat_rate if body.vat_rate in (0, 5, 9, 19) else 19
+    vat_payer = org.get("company", {}).get("vat_payer", True)
+    default_rate = 19 if vat_payer else 0
+    rate = body.vat_rate if (body.vat_rate in (0, 5, 9, 19)) else default_rate
     gross = float(order["total"])
     net, vat = _vat_split(gross, rate)
     lines = []
@@ -1399,7 +1405,7 @@ async def push_invoice_to_oblio(invoice_id: str, user=Depends(current_user)):
     if not cif:
         raise HTTPException(status_code=400, detail="Lipseste CIF-ul firmei pentru Oblio (Date firma)")
     token = await _oblio_token(org)
-    vat_name = "Normala" if inv["vat_rate"] == 19 else ("Redusa" if inv["vat_rate"] == 9 else "SFDD")
+    vat_name = {19: "Normala", 9: "Redusa", 5: "Redusa", 0: "SFDD"}.get(inv["vat_rate"], "Normala")
     products = [{
         "name": l["label"], "price": round(l["gross"] / l["qty"], 2), "measuringUnit": "buc",
         "currency": "RON", "vatName": vat_name, "vatPercentage": inv["vat_rate"],
