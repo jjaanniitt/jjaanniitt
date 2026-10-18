@@ -38,7 +38,8 @@ Aplicatie mobila de logistica (consignatie) pentru distribuitor de detergenti. F
       consignatia scade din central si creste la partener; vanzarile partenerului scad doar stocul lui;
       izolare completa pe organizatie; gating pe rol in UI. (testat: iteration_6, 12/12 + frontend)
 - [~] FAZA 2: Dashboard imbogatit — KPI-uri + card FACTURARE (facturat/de incasat/TVA luna); grafice/tabele avansate PIMS raman de extins
-- [x] FAZA 3: Facturare stil Oblio — profil firma (CUI/Reg.Com/IBAN/serie), facturi din comanda cu numerotare serie, TVA 19/9/5, incasare partiala, status Emisa/Partial/Platita, PDF, izolare pe rol. (testat: iteration_7, 13/13 + frontend)
+- [x] FAZA 3: Facturare stil Oblio — profil firma, facturi din comanda, TVA, incasare partiala, PDF (model Oblio), editare/stergere factura
+- [x] INTEGRARE OBLIO: conectare cont Oblio (email+API secret+CIF+serie) in Date firma; buton „Emite in Oblio" pe factura -> emite in contul Oblio al userului si deschide PDF-ul (token cache, per-organizatie). Netestat live (necesita credentiale reale Oblio de la user).
 
 ## Backlog
 - P1: Plata reala in-app (RevenueCat) la publicare

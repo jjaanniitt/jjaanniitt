@@ -1,10 +1,10 @@
 import { useCallback, useState } from "react";
-import { Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, Text, View, Linking } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { X, FilePdf, Money, PencilSimple, Trash } from "phosphor-react-native";
+import { X, FilePdf, Money, PencilSimple, Trash, CloudArrowUp, ArrowSquareOut } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Field } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
@@ -76,6 +76,16 @@ export default function FacturaDetail() {
     onError: (e: any) => toast(e.message || "Eroare", "error"),
   });
 
+  const pushOblio = useMutation({
+    mutationFn: () => api<any>(`/invoices/${id}/oblio`, { method: "POST" }),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ["invoice", id] });
+      toast(`Emisa in Oblio: ${r.series}-${r.number}`, "success");
+      if (r.link) Linking.openURL(r.link);
+    },
+    onError: (e: any) => toast(e.message || "Eroare Oblio", "error"),
+  });
+
   if (!data) return <View style={s.root}><AppHeader title="Factura" onBack={() => router.back()} /></View>;
 
   const remaining = data.gross - (data.paid || 0);
@@ -130,6 +140,11 @@ export default function FacturaDetail() {
           <Btn title="Incaseaza" onPress={() => { setAmount(String(remaining)); setPayModal(true); }} icon={<Money size={18} color={colors.onBrandPrimary} weight="bold" />} testID="collect-invoice" />
         ) : null}
         <Btn title="Descarca PDF" variant="outline" onPress={() => exportInvoicePdf(data).catch(() => toast("Export esuat", "error"))} icon={<FilePdf size={18} color={colors.onSurface} />} testID="download-invoice-pdf" />
+        {data.oblio_link ? (
+          <Btn title={`Deschide in Oblio (${data.oblio_series}-${data.oblio_number})`} variant="outline" onPress={() => Linking.openURL(data.oblio_link)} icon={<ArrowSquareOut size={18} color={colors.onSurface} />} testID="open-oblio" />
+        ) : (
+          <Btn title="Emite in Oblio" onPress={() => pushOblio.mutate()} loading={pushOblio.isPending} icon={<CloudArrowUp size={18} color={colors.onBrandPrimary} weight="bold" />} testID="push-oblio" />
+        )}
         <Btn title="Editeaza factura" variant="secondary" onPress={openEdit} icon={<PencilSimple size={18} color={colors.onBrandSecondary} weight="bold" />} testID="edit-invoice" />
         <Btn title="Sterge factura" variant="danger" onPress={() => setConfirmDel(true)} icon={<Trash size={18} color={colors.onBrandPrimary} weight="bold" />} testID="delete-invoice" />
       </ScrollView>

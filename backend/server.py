@@ -1109,6 +1109,10 @@ class CompanyUpdate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     invoice_series: Optional[str] = None
+    oblio_email: Optional[str] = None
+    oblio_secret: Optional[str] = None
+    oblio_cif: Optional[str] = None
+    oblio_series: Optional[str] = None
 
 
 @api_router.get("/company")
@@ -1116,6 +1120,11 @@ async def get_company(user=Depends(current_user)):
     org = await get_org(user)
     comp = dict(org.get("company", {}))
     comp["invoice_series"] = org.get("invoice_series", "NODE")
+    ob = org.get("oblio", {})
+    comp["oblio_email"] = ob.get("email", "")
+    comp["oblio_cif"] = ob.get("cif", "")
+    comp["oblio_series"] = ob.get("series", "")
+    comp["oblio_connected"] = bool(ob.get("secret"))
     return comp
 
 
@@ -1131,10 +1140,19 @@ async def update_company(body: CompanyUpdate, user=Depends(require_parent)):
     sets["company"] = comp
     if body.invoice_series is not None:
         sets["invoice_series"] = body.invoice_series.strip() or "NODE"
+    ob = dict(org.get("oblio", {}))
+    if body.oblio_email is not None:
+        ob["email"] = body.oblio_email.strip()
+    if body.oblio_secret is not None and body.oblio_secret.strip():
+        ob["secret"] = body.oblio_secret.strip()
+        ob["token"] = None  # force refresh after secret change
+    if body.oblio_cif is not None:
+        ob["cif"] = body.oblio_cif.strip()
+    if body.oblio_series is not None:
+        ob["series"] = body.oblio_series.strip()
+    sets["oblio"] = ob
     await db.organizations.update_one({"id": org_id_of(user)}, {"$set": sets})
-    out = dict(comp)
-    out["invoice_series"] = sets.get("invoice_series", org.get("invoice_series", "NODE"))
-    return out
+    return await get_company(user)
 
 
 async def next_invoice_no(org_id: str, series: str) -> int:
@@ -1296,6 +1314,85 @@ async def delete_invoice(invoice_id: str, user=Depends(current_user)):
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Factura negasita")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Oblio integration (facturare directa in contul Oblio al utilizatorului)
+# ---------------------------------------------------------------------------
+OBLIO_BASE = "https://www.oblio.eu"
+
+
+async def _oblio_token(org: dict) -> str:
+    ob = org.get("oblio", {})
+    if not ob.get("email") or not ob.get("secret"):
+        raise HTTPException(status_code=400, detail="Conecteaza contul Oblio in Date firma (email + API secret)")
+    exp = ob.get("token_exp")
+    if ob.get("token") and exp and exp > now_iso():
+        return ob["token"]
+    try:
+        r = requests.post(f"{OBLIO_BASE}/api/authorize/token",
+                          data={"client_id": ob["email"], "client_secret": ob["secret"]}, timeout=20)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Nu s-a putut contacta Oblio")
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail="Autorizare Oblio esuata. Verifica email-ul si API secret-ul.")
+    body = r.json()
+    token = body.get("access_token")
+    if not token:
+        raise HTTPException(status_code=502, detail="Oblio nu a returnat token")
+    seconds = int(body.get("expires_in", 3600))
+    new_exp = (datetime.now(timezone.utc) + timedelta(seconds=seconds - 60)).isoformat()
+    await db.organizations.update_one({"id": org["id"]}, {"$set": {"oblio.token": token, "oblio.token_exp": new_exp}})
+    return token
+
+
+@api_router.post("/invoices/{invoice_id}/oblio")
+async def push_invoice_to_oblio(invoice_id: str, user=Depends(current_user)):
+    inv = await db.invoices.find_one(data_query(user, {"id": invoice_id}))
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura negasita")
+    org = await get_org(user)
+    ob = org.get("oblio", {})
+    cif = ob.get("cif") or (org.get("company", {}) or {}).get("cui")
+    series = ob.get("series") or org.get("invoice_series", "FCT")
+    if not cif:
+        raise HTTPException(status_code=400, detail="Lipseste CIF-ul firmei pentru Oblio (Date firma)")
+    token = await _oblio_token(org)
+    vat_name = "Normala" if inv["vat_rate"] == 19 else ("Redusa" if inv["vat_rate"] == 9 else "SFDD")
+    products = [{
+        "name": l["label"], "price": round(l["gross"] / l["qty"], 2), "measuringUnit": "buc",
+        "currency": "RON", "vatName": vat_name, "vatPercentage": inv["vat_rate"],
+        "vatIncluded": 1, "quantity": l["qty"], "productType": "Marfa",
+    } for l in inv.get("lines", [])]
+    payload = {
+        "cif": cif, "seriesName": series, "language": "RO", "precision": 2, "currency": "RON",
+        "issueDate": inv.get("issue_date"), "dueDate": inv.get("due_date"),
+        "client": {"name": inv["client_name"], "cif": inv.get("client_cui", ""),
+                   "address": inv.get("client_address", ""), "country": "Romania",
+                   "vatPayer": 1 if inv.get("client_cui") else 0, "save": 1, "autocomplete": 1},
+        "products": products,
+        "mentions": f"Comanda {inv.get('order_no', '')}", "workStation": "Sediu",
+    }
+    try:
+        r = requests.post(f"{OBLIO_BASE}/api/docs/invoice", json=payload,
+                          headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, timeout=30)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Nu s-a putut contacta Oblio")
+    if r.status_code in (401, 403):
+        await db.organizations.update_one({"id": org["id"]}, {"$set": {"oblio.token": None, "oblio.token_exp": None}})
+        raise HTTPException(status_code=502, detail="Sesiune Oblio expirata. Incearca din nou.")
+    if r.status_code >= 400:
+        msg = ""
+        try:
+            msg = r.json().get("statusMessage", "")
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail=f"Oblio: {msg or 'eroare la emitere'}")
+    data = r.json().get("data", {})
+    result = {"series": data.get("seriesName"), "number": data.get("number"), "link": data.get("link")}
+    await db.invoices.update_one({"id": invoice_id}, {"$set": {
+        "oblio_series": result["series"], "oblio_number": result["number"], "oblio_link": result["link"]}})
+    return result
 
 
 # ---------------------------------------------------------------------------
