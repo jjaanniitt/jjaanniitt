@@ -1111,8 +1111,9 @@ async def lookup_cui(cui: str, user=Depends(current_user)):
     ni_key = os.environ.get("NODE_INTELLIGENCE_API_KEY", "").strip()
     if ni_key:
         try:
-            r = requests.get(f"https://nodeintelligence.ro/api/lookup/{clean}",
-                              headers={"X-API-Key": ni_key}, timeout=12)
+            r = await run_in_threadpool(
+                lambda: requests.get(f"https://nodeintelligence.ro/api/lookup/{clean}",
+                                     headers={"X-API-Key": ni_key}, timeout=12))
             if r.status_code == 200:
                 d = r.json() or {}
                 if d.get("valid") and d.get("name"):
@@ -1126,9 +1127,10 @@ async def lookup_cui(cui: str, user=Depends(current_user)):
 
     # 2) ANAF direct (IP-uri permise, productie RO) — adauga adresa completa + nr. Reg. Com. + telefon
     try:
-        r = requests.post("https://webservice.anaf.ro/PlatitorTvaRest/api/v9/ws/tva",
-                          json=[{"cui": int(clean), "data": today}],
-                          headers={"Content-Type": "application/json"}, timeout=8)
+        r = await run_in_threadpool(
+            lambda: requests.post("https://webservice.anaf.ro/PlatitorTvaRest/api/v9/ws/tva",
+                                  json=[{"cui": int(clean), "data": today}],
+                                  headers={"Content-Type": "application/json"}, timeout=8))
         if r.status_code == 200:
             found = (r.json() or {}).get("found") or []
             if found:
@@ -1149,7 +1151,8 @@ async def lookup_cui(cui: str, user=Depends(current_user)):
     # 3) VIES (UE, fara cheie) — adresa completa pentru firmele platitoare de TVA
     if vat_payer is not False and (not name or len(address) < 25):
         try:
-            r = requests.get(f"https://ec.europa.eu/taxation_customs/vies/rest-api/ms/RO/vat/{clean}", timeout=12)
+            r = await run_in_threadpool(
+                lambda: requests.get(f"https://ec.europa.eu/taxation_customs/vies/rest-api/ms/RO/vat/{clean}", timeout=12))
             if r.status_code == 200:
                 d = r.json()
                 if d.get("isValid") and d.get("name") and d.get("name") != "---":
@@ -1407,12 +1410,18 @@ async def _oblio_token(org: dict) -> str:
     if ob.get("token") and exp and exp > now_iso():
         return ob["token"]
     try:
-        r = requests.post(f"{OBLIO_BASE}/api/authorize/token",
-                          data={"client_id": ob["email"], "client_secret": ob["secret"]}, timeout=20)
+        r = await run_in_threadpool(
+            lambda: requests.post(f"{OBLIO_BASE}/api/authorize/token",
+                                  data={"client_id": ob["email"], "client_secret": ob["secret"]}, timeout=20))
     except Exception:
         raise HTTPException(status_code=502, detail="Nu s-a putut contacta Oblio")
     if r.status_code != 200:
-        raise HTTPException(status_code=502, detail="Autorizare Oblio esuata. Verifica email-ul si API secret-ul.")
+        msg = ""
+        try:
+            msg = (r.json() or {}).get("error_description", "")
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail=f"Autorizare Oblio esuata: {msg or 'verifica email-ul si API secret-ul'}")
     body = r.json()
     token = body.get("access_token")
     if not token:
@@ -1451,8 +1460,9 @@ async def push_invoice_to_oblio(invoice_id: str, user=Depends(current_user)):
         "mentions": f"Comanda {inv.get('order_no', '')}", "workStation": "Sediu",
     }
     try:
-        r = requests.post(f"{OBLIO_BASE}/api/docs/invoice", json=payload,
-                          headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, timeout=30)
+        r = await run_in_threadpool(
+            lambda: requests.post(f"{OBLIO_BASE}/api/docs/invoice", json=payload,
+                                  headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, timeout=30))
     except Exception:
         raise HTTPException(status_code=502, detail="Nu s-a putut contacta Oblio")
     if r.status_code in (401, 403):
