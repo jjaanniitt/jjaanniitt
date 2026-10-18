@@ -1105,7 +1105,26 @@ async def lookup_cui(cui: str, user=Depends(current_user)):
     if not clean:
         raise HTTPException(status_code=400, detail="CUI invalid")
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    # 1) ANAF (bogat: denumire, adresa, nrRegCom, telefon) — merge din IP-uri permise (productie RO)
+    name = ""; address = ""; reg_com = ""; phone = ""; vat_payer = None; source = ""
+
+    # 1) Node Intelligence (ANAF v9 live, merge din orice IP, acopera si firmele neplatitoare de TVA)
+    ni_key = os.environ.get("NODE_INTELLIGENCE_API_KEY", "").strip()
+    if ni_key:
+        try:
+            r = requests.get(f"https://nodeintelligence.ro/api/lookup/{clean}",
+                              headers={"X-API-Key": ni_key}, timeout=12)
+            if r.status_code == 200:
+                d = r.json() or {}
+                if d.get("valid") and d.get("name"):
+                    name = (d.get("name") or "").strip()
+                    vat_payer = (d.get("vat_state") == "platitor")
+                    city = (d.get("city") or "").strip(); county = (d.get("county") or "").strip()
+                    address = ", ".join([x for x in (city, county) if x])
+                    source = "NODE"
+        except Exception:
+            pass
+
+    # 2) ANAF direct (IP-uri permise, productie RO) — adauga adresa completa + nr. Reg. Com. + telefon
     try:
         r = requests.post("https://webservice.anaf.ro/PlatitorTvaRest/api/v9/ws/tva",
                           json=[{"cui": int(clean), "data": today}],
@@ -1116,28 +1135,39 @@ async def lookup_cui(cui: str, user=Depends(current_user)):
                 g = found[0].get("date_generale", {}) or {}
                 tva = found[0].get("inregistrare_scopTva", {}) or {}
                 if g.get("denumire"):
-                    is_vat = bool(tva.get("scpTVA"))
-                    return {"name": g.get("denumire", "").strip(),
-                            "address": g.get("adresa", "").strip(),
-                            "reg_com": g.get("nrRegCom", "").strip(),
-                            "phone": g.get("telefon", "").strip(),
-                            "cui": ("RO" + clean) if is_vat else clean,
-                            "vat_payer": is_vat, "source": "ANAF"}
+                    name = name or g.get("denumire", "").strip()
+                    if g.get("adresa"):
+                        address = g.get("adresa", "").strip()
+                    reg_com = reg_com or g.get("nrRegCom", "").strip()
+                    phone = phone or g.get("telefon", "").strip()
+                    if vat_payer is None:
+                        vat_payer = bool(tva.get("scpTVA"))
+                    source = source or "ANAF"
     except Exception:
         pass
-    # 2) VIES (UE, fara cheie, din orice IP) — doar firme platitoare de TVA
-    try:
-        r = requests.get(f"https://ec.europa.eu/taxation_customs/vies/rest-api/ms/RO/vat/{clean}", timeout=12)
-        if r.status_code == 200:
-            d = r.json()
-            if d.get("isValid") and d.get("name") and d.get("name") != "---":
-                return {"name": d.get("name", "").strip(),
-                        "address": (d.get("address") or "").replace("\n", ", ").strip(),
-                        "reg_com": "", "phone": "", "cui": "RO" + clean,
-                        "vat_payer": True, "source": "VIES"}
-    except Exception:
-        pass
-    raise HTTPException(status_code=404, detail="Firma negasita dupa CUI (sau nu e platitoare de TVA)")
+
+    # 3) VIES (UE, fara cheie) — adresa completa pentru firmele platitoare de TVA
+    if vat_payer is not False and (not name or len(address) < 25):
+        try:
+            r = requests.get(f"https://ec.europa.eu/taxation_customs/vies/rest-api/ms/RO/vat/{clean}", timeout=12)
+            if r.status_code == 200:
+                d = r.json()
+                if d.get("isValid") and d.get("name") and d.get("name") != "---":
+                    name = name or d.get("name", "").strip()
+                    vies_addr = (d.get("address") or "").replace("\n", ", ").strip()
+                    if vies_addr:
+                        address = vies_addr
+                    if vat_payer is None:
+                        vat_payer = True
+                    source = source or "VIES"
+        except Exception:
+            pass
+
+    if name:
+        return {"name": name, "address": address, "reg_com": reg_com, "phone": phone,
+                "cui": ("RO" + clean) if vat_payer else clean,
+                "vat_payer": bool(vat_payer), "source": source or "NODE"}
+    raise HTTPException(status_code=404, detail="Firma negasita dupa CUI")
 
 
 class CompanyUpdate(BaseModel):
