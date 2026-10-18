@@ -1251,9 +1251,50 @@ async def invoice_payment(invoice_id: str, body: PaymentCreate, user=Depends(cur
     return await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
 
 
+class InvoiceUpdate(BaseModel):
+    vat_rate: Optional[int] = None
+    issue_date: Optional[str] = None
+    due_date: Optional[str] = None
+    client_name: Optional[str] = None
+    client_cui: Optional[str] = None
+    client_address: Optional[str] = None
+
+
+@api_router.put("/invoices/{invoice_id}")
+async def update_invoice(invoice_id: str, body: InvoiceUpdate, user=Depends(current_user)):
+    inv = await db.invoices.find_one(data_query(user, {"id": invoice_id}))
+    if not inv:
+        raise HTTPException(status_code=404, detail="Factura negasita")
+    sets = {}
+    if body.vat_rate is not None:
+        rate = body.vat_rate if body.vat_rate in (0, 5, 9, 19) else 19
+        gross = float(inv["gross"])
+        net, vat = _vat_split(gross, rate)
+        lines = []
+        for ln in inv.get("lines", []):
+            l_net, l_vat = _vat_split(float(ln["gross"]), rate)
+            lines.append({**ln, "net": l_net, "vat": l_vat})
+        sets.update({"vat_rate": rate, "net": net, "vat": vat, "lines": lines})
+    if body.issue_date is not None:
+        sets["issue_date"] = body.issue_date[:10]
+    if body.due_date is not None:
+        sets["due_date"] = body.due_date[:10]
+    if body.client_name is not None:
+        sets["client_name"] = body.client_name.strip()
+    if body.client_cui is not None:
+        sets["client_cui"] = body.client_cui.strip()
+    if body.client_address is not None:
+        sets["client_address"] = body.client_address.strip()
+    if sets:
+        await db.invoices.update_one({"id": invoice_id}, {"$set": sets})
+    return await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
+
+
 @api_router.delete("/invoices/{invoice_id}")
-async def delete_invoice(invoice_id: str, user=Depends(require_parent)):
-    await db.invoices.update_one({"id": invoice_id, "organization_id": org_id_of(user)}, {"$set": {"deleted_at": now_iso()}})
+async def delete_invoice(invoice_id: str, user=Depends(current_user)):
+    res = await db.invoices.update_one(data_query(user, {"id": invoice_id}), {"$set": {"deleted_at": now_iso()}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Factura negasita")
     return {"ok": True}
 
 

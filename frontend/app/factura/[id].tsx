@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { X, FilePdf, Money } from "phosphor-react-native";
+import { X, FilePdf, Money, PencilSimple, Trash } from "phosphor-react-native";
 import { AppHeader } from "@/src/components/header";
 import { Btn, Field } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
@@ -25,6 +25,9 @@ export default function FacturaDetail() {
 
   const [payModal, setPayModal] = useState(false);
   const [amount, setAmount] = useState("");
+  const [editModal, setEditModal] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [ef, setEf] = useState<any>({ vat_rate: 19, issue_date: "", due_date: "", client_name: "", client_cui: "", client_address: "" });
 
   const { data, refetch } = useQuery({ queryKey: ["invoice", id], queryFn: () => api<any>(`/invoices/${id}`), enabled: !!id });
   useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
@@ -37,6 +40,38 @@ export default function FacturaDetail() {
       qc.invalidateQueries({ queryKey: ["invoices-summary"] });
       setPayModal(false); setAmount("");
       toast("Incasare inregistrata", "success");
+    },
+    onError: (e: any) => toast(e.message || "Eroare", "error"),
+  });
+
+  const openEdit = () => {
+    setEf({
+      vat_rate: data.vat_rate, issue_date: data.issue_date, due_date: data.due_date,
+      client_name: data.client_name || "", client_cui: data.client_cui || "", client_address: data.client_address || "",
+    });
+    setEditModal(true);
+  };
+
+  const editInv = useMutation({
+    mutationFn: () => api(`/invoices/${id}`, { method: "PUT", body: ef }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoice", id] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["invoices-summary"] });
+      setEditModal(false);
+      toast("Factura actualizata", "success");
+    },
+    onError: (e: any) => toast(e.message || "Eroare", "error"),
+  });
+
+  const delInv = useMutation({
+    mutationFn: () => api(`/invoices/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["invoices-summary"] });
+      setConfirmDel(false);
+      toast("Factura stearsa", "success");
+      router.back();
     },
     onError: (e: any) => toast(e.message || "Eroare", "error"),
   });
@@ -95,6 +130,8 @@ export default function FacturaDetail() {
           <Btn title="Incaseaza" onPress={() => { setAmount(String(remaining)); setPayModal(true); }} icon={<Money size={18} color={colors.onBrandPrimary} weight="bold" />} testID="collect-invoice" />
         ) : null}
         <Btn title="Descarca PDF" variant="outline" onPress={() => exportInvoicePdf(data).catch(() => toast("Export esuat", "error"))} icon={<FilePdf size={18} color={colors.onSurface} />} testID="download-invoice-pdf" />
+        <Btn title="Editeaza factura" variant="secondary" onPress={openEdit} icon={<PencilSimple size={18} color={colors.onBrandSecondary} weight="bold" />} testID="edit-invoice" />
+        <Btn title="Sterge factura" variant="danger" onPress={() => setConfirmDel(true)} icon={<Trash size={18} color={colors.onBrandPrimary} weight="bold" />} testID="delete-invoice" />
       </ScrollView>
 
       <Modal visible={payModal} transparent animationType="fade" onRequestClose={() => setPayModal(false)}>
@@ -110,6 +147,43 @@ export default function FacturaDetail() {
               <Btn title="Confirma incasarea" onPress={() => pay.mutate()} disabled={!parseFloat(amount || "0") || pay.isPending} loading={pay.isPending} testID="confirm-pay" />
             </View>
           </KeyboardAwareScrollView>
+        </View>
+      </Modal>
+      <Modal visible={editModal} transparent animationType="slide" onRequestClose={() => setEditModal(false)}>
+        <View style={s.backdrop}>
+          <KeyboardAwareScrollView contentContainerStyle={s.sheetScroll} keyboardShouldPersistTaps="handled" bottomOffset={20}>
+            <View style={s.sheet}>
+              <View style={s.sheetHead}>
+                <Text style={s.sheetTitle}>EDITEAZA FACTURA</Text>
+                <Pressable onPress={() => setEditModal(false)} testID="close-edit"><X size={20} color={colors.onSurface} /></Pressable>
+              </View>
+              <Text style={s.fieldLabel}>COTA TVA</Text>
+              <View style={s.vatRow}>
+                {[19, 9, 5, 0].map((r) => (
+                  <Pressable key={r} style={[s.vatBtn, ef.vat_rate === r && s.vatBtnOn]} onPress={() => setEf((p: any) => ({ ...p, vat_rate: r }))} testID={`vat-${r}`}>
+                    <Text style={[s.vatText, ef.vat_rate === r && s.vatTextOn]}>{r}%</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Field label="Data emiterii (AAAA-LL-ZZ)" value={ef.issue_date} onChangeText={(v) => setEf((p: any) => ({ ...p, issue_date: v }))} testID="edit-issue" />
+              <Field label="Scadenta (AAAA-LL-ZZ)" value={ef.due_date} onChangeText={(v) => setEf((p: any) => ({ ...p, due_date: v }))} testID="edit-due" />
+              <Field label="Nume client" value={ef.client_name} onChangeText={(v) => setEf((p: any) => ({ ...p, client_name: v }))} testID="edit-client-name" />
+              <Field label="CUI client" value={ef.client_cui} onChangeText={(v) => setEf((p: any) => ({ ...p, client_cui: v }))} testID="edit-client-cui" />
+              <Field label="Adresa client" value={ef.client_address} onChangeText={(v) => setEf((p: any) => ({ ...p, client_address: v }))} testID="edit-client-address" />
+              <Btn title="Salveaza modificarile" onPress={() => editInv.mutate()} loading={editInv.isPending} testID="save-invoice-edit" />
+            </View>
+          </KeyboardAwareScrollView>
+        </View>
+      </Modal>
+
+      <Modal visible={confirmDel} transparent animationType="fade" onRequestClose={() => setConfirmDel(false)}>
+        <View style={[s.backdrop, { justifyContent: "center", padding: 24 }]}>
+          <View style={s.sheet}>
+            <Text style={s.sheetTitle}>STERGE FACTURA</Text>
+            <Text style={s.cardSub}>Sigur stergi factura {data.number_full}? Actiunea nu poate fi anulata.</Text>
+            <Btn title="Da, sterge" variant="danger" onPress={() => delInv.mutate()} loading={delInv.isPending} testID="confirm-delete-invoice" />
+            <Btn title="Anuleaza" variant="outline" onPress={() => setConfirmDel(false)} />
+          </View>
         </View>
       </Modal>
     </View>
@@ -142,4 +216,10 @@ const useStyles = makeStyles((c) => ({
   sheet: { backgroundColor: c.surface, borderTopWidth: 1, borderColor: c.borderStrong, padding: 20, gap: 16 },
   sheetHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   sheetTitle: { fontFamily: fonts.monoMedium, fontSize: 13, letterSpacing: 1, color: c.onSurface },
+  fieldLabel: { fontFamily: fonts.mono, fontSize: 10, letterSpacing: 1, color: c.muted },
+  vatRow: { flexDirection: "row", gap: 8 },
+  vatBtn: { flex: 1, borderWidth: 1, borderColor: c.borderStrong, paddingVertical: 10, alignItems: "center", backgroundColor: c.surface },
+  vatBtnOn: { backgroundColor: c.brandPrimary },
+  vatText: { fontFamily: fonts.monoMedium, fontSize: 13, color: c.onSurface },
+  vatTextOn: { color: c.onBrandPrimary },
 }));
