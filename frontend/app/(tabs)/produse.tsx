@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { FlatList, Modal, Pressable, ScrollView, Text, View } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -93,7 +94,8 @@ export default function Produse() {
         data={filtered}
         keyExtractor={(p) => p.id}
         contentContainerStyle={s.listContent}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
+          <Animated.View entering={FadeInDown.delay(Math.min(index, 12) * 28).springify().damping(16)}>
           <Pressable style={s.row} testID={`product-${item.id}`} onPress={() => role === "parent" && setEdit({ id: item.id, label: `${item.variant} ${item.size}`, price: String(item.price), barcode: item.barcode || "" })}>
             <View style={s.sizeBox}><Text style={s.sizeText}>{item.size}</Text></View>
             <View style={{ flex: 1 }}>
@@ -105,6 +107,7 @@ export default function Produse() {
             </View>
             <Text style={s.price}>{item.price} RON</Text>
           </Pressable>
+          </Animated.View>
         )}
         ListEmptyComponent={!isLoading ? <EmptyState title="Niciun produs" icon={<Package size={40} color={colors.muted} />} /> : null}
       />

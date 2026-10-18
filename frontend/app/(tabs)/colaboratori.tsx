@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { FlatList, Modal, Pressable, Text, View } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
@@ -44,7 +45,8 @@ export default function Colaboratori() {
         data={data ?? []}
         keyExtractor={(c) => c.id}
         contentContainerStyle={s.listContent}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
+          <Animated.View entering={FadeInDown.delay(Math.min(index, 10) * 40).springify().damping(16)}>
           <Pressable style={s.row} onPress={() => router.push(`/colaborator/${item.id}`)} testID={`collab-row-${item.id}`}>
             <InitialsBlock text={initials(item.name)} size={48} />
             <View style={{ flex: 1 }}>
@@ -56,6 +58,7 @@ export default function Colaboratori() {
             </View>
             <CaretRight size={18} color={colors.muted} />
           </Pressable>
+          </Animated.View>
         )}
         ListEmptyComponent={
           !isLoading ? (

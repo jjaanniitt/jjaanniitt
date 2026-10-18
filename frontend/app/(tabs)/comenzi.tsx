@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { FlatList, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
@@ -69,7 +70,8 @@ export default function Comenzi() {
         data={filtered}
         keyExtractor={(o) => o.id}
         contentContainerStyle={s.listContent}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
+          <Animated.View entering={FadeInDown.delay(Math.min(index, 10) * 35).springify().damping(16)}>
           <Pressable
             style={s.row}
             onPress={() => router.push(`/comanda/${item.id}`)}
@@ -85,6 +87,7 @@ export default function Comenzi() {
               <Text style={s.total}>{formatRON(item.total)}</Text>
             </View>
           </Pressable>
+          </Animated.View>
         )}
         ListEmptyComponent={
           !isLoading ? (

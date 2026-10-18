@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
@@ -42,9 +43,10 @@ export default function Facturi() {
             </View>
           ) : null
         }
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const ss = statusStyle(item.status);
           return (
+            <Animated.View entering={FadeInDown.delay(Math.min(index, 10) * 40).springify().damping(16)}>
             <Pressable style={s.row} onPress={() => router.push(`/factura/${item.id}`)} testID={`invoice-row-${item.id}`}>
               <View style={{ flex: 1 }}>
                 <Text style={s.num}>{item.number_full}</Text>
@@ -56,6 +58,7 @@ export default function Facturi() {
               </View>
               <CaretRight size={16} color={colors.muted} />
             </Pressable>
+            </Animated.View>
           );
         }}
         ListEmptyComponent={!listQ.isLoading ? (

@@ -1,8 +1,11 @@
 import { ReactNode } from "react";
 import { ActivityIndicator, Pressable, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { Minus, Plus } from "phosphor-react-native";
 import { makeStyles, useTheme, fonts } from "@/src/theme";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 // ---------------------------------------------------------------------------
 // Button
@@ -27,11 +30,15 @@ export function Btn({
     variant === "outline" ? { color: colors.onSurface }
     : variant === "secondary" ? { color: colors.onBrandSecondary }
     : { color: colors.onBrandPrimary };
+  const scale = useSharedValue(1);
+  const anim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }], opacity: isDisabled ? 0.5 : 1 }));
   return (
-    <Pressable
+    <AnimatedPressable
       testID={testID}
+      onPressIn={() => { if (!isDisabled) scale.value = withTiming(0.96, { duration: 90 }); }}
+      onPressOut={() => { scale.value = withSpring(1, { damping: 12, stiffness: 220 }); }}
       onPress={() => { if (!isDisabled) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); } }}
-      style={[s.base, bg, isDisabled && s.disabled]}
+      style={[s.base, bg, anim]}
       disabled={isDisabled}
     >
       {loading ? (
@@ -42,7 +49,7 @@ export function Btn({
           <Text style={[s.label, txt]}>{title}</Text>
         </View>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

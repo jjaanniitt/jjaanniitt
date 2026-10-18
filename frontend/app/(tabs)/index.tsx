@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Modal, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
 import { Warning, TrendUp, Gear, ChartBar, CaretRight, UserCircle, Receipt } from "phosphor-react-native";
@@ -116,6 +117,7 @@ export default function Dashboard() {
             </Pressable>
 
             {billQ.data ? (
+              <Animated.View entering={FadeInDown.delay(60).springify().damping(16)}>
               <Pressable style={s.billCard} onPress={() => router.push("/facturi")} testID="dash-billing">
                 <View style={s.billHead}>
                   <Receipt size={18} color={colors.onSurface} weight="fill" />
@@ -128,6 +130,7 @@ export default function Dashboard() {
                   <View style={s.billKpi}><Text style={s.billVal}>{formatRON(billQ.data.vat_month)}</Text><Text style={s.billLabel}>TVA LUNA</Text></View>
                 </View>
               </Pressable>
+              </Animated.View>
             ) : null}
 
             {data.by_category && data.by_category.length > 0 ? (
